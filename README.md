@@ -73,9 +73,3 @@ Development
 - Code style: `uv run black .` (line length 88).
 - Static checks: `uv run flake8` and `uv run mypy --strict`.
 - Tests (placeholder): `uv run pytest -v` (no tests yet, this command currently reports “no tests collected”).
-
-Alternative GUIs
-----------------
-
-- `macro_py.MacroGUI_tkinter.MacroGUI` offers a Tkinter fallback if PyQt5 is not available.
-- `macro_py.MacroGUI_pyqt5_backup.MacroGUI` keeps a lighter PyQt5 window without the advanced logging view.
