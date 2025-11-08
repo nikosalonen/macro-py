@@ -148,7 +148,7 @@ class MacroGUI(QMainWindow):
         self.action_stop_rec.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         self.action_stop_rec.triggered.connect(self.stop_recording_gui)
 
-        self.action_play_once = QAction("Play 1×", self)
+        self.action_play_once = QAction("Play 1x", self)
         self.action_play_once.setShortcut(QKeySequence("F3"))
         self.action_play_once.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         self.action_play_once.triggered.connect(self.play_once_gui)
