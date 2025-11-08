@@ -36,8 +36,8 @@ class MacroPlayer:
 
                 # Skip control/meta events or events missing timing
                 event_type = event.get("type")
-                if event_type is None:
-                    print(f"❌ [DEBUG] Event type is None: {event}")
+                if not event_type:
+                    logging.debug("Skipping event without type")
                     continue
                 if event_type == "__stop_request__":
                     continue
@@ -62,24 +62,48 @@ class MacroPlayer:
         event_type = event.get("type", "")
 
         if event_type == "mouse_move":
-            self.mouse.position = (event["x"], event["y"])
+            x = event.get("x")
+            y = event.get("y")
+            if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+                self.mouse.position = (x, y)
+            else:
+                logging.debug("mouse_move missing/invalid coordinates; skipping")
 
         elif event_type == "mouse_click":
-            button = self.parse_button(event["button"])
-            if event["pressed"]:
+            button_str = event.get("button")
+            pressed = event.get("pressed")
+            if button_str is None or pressed is None:
+                logging.debug("mouse_click missing button/pressed; skipping")
+                return
+            button = self.parse_button(button_str)
+            if pressed:
                 self.mouse.press(button)
             else:
                 self.mouse.release(button)
 
         elif event_type == "mouse_scroll":
-            self.mouse.scroll(event["dx"], event["dy"])
+            dx = event.get("dx", 0)
+            dy = event.get("dy", 0)
+            if not isinstance(dx, (int, float)):
+                dx = 0
+            if not isinstance(dy, (int, float)):
+                dy = 0
+            self.mouse.scroll(dx, dy)
 
         elif event_type == "key_press":
-            key = self.parse_key(event["key"])
+            key_str = event.get("key")
+            if key_str is None:
+                logging.debug("key_press missing key; skipping")
+                return
+            key = self.parse_key(key_str)
             self.keyboard.press(key)
 
         elif event_type == "key_release":
-            key = self.parse_key(event["key"])
+            key_str = event.get("key")
+            if key_str is None:
+                logging.debug("key_release missing key; skipping")
+                return
+            key = self.parse_key(key_str)
             self.keyboard.release(key)
 
     def parse_button(self, button_str):
