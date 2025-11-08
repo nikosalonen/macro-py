@@ -532,17 +532,11 @@ class MacroRecorder:
         try:
             if self.recording:
                 # Intercept stop hotkey (F2) as a control event (non-macOS in-process)
-                try:
-                    if key == keyboard.Key.f2:
-                        # Signal the GUI via a synthetic control event
-                        try:
-                            timestamp = time.time() - (self.start_time or time.time())
-                        except Exception:
-                            timestamp = 0.0
-                        self.events.append({"type": "__stop_request__", "time": timestamp})
-                        return
-                except Exception:
-                    pass
+                if key == keyboard.Key.f2:
+                    # Compute timestamp deterministically (0.0 if start_time is None)
+                    timestamp = 0.0 if self.start_time is None else time.time() - self.start_time
+                    self.events.append({"type": "__stop_request__", "time": timestamp})
+                    return
 
                 try:
                     key_name = key.char
@@ -556,8 +550,8 @@ class MacroRecorder:
                         "time": time.time() - self.start_time,
                     }
                 )
-        except Exception as e:
-            print(f"⚠️ on_key_press error: {e}")
+        except Exception:
+            logging.exception("on_key_press error")
 
     def on_key_release(self, key):
         try:
