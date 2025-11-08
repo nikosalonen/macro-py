@@ -15,9 +15,11 @@ from PyQt6.QtWidgets import (
     QTextEdit,
     QSplitter,
     QCheckBox,
+    QToolBar,
+    QMessageBox,
 )
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QKeySequence, QShortcut
+from PyQt6.QtCore import Qt, QTimer, QSize
+from PyQt6.QtGui import QKeySequence, QShortcut, QAction, QIcon
 from .MacroApp import MacroApp
 from pynput import keyboard
 
@@ -27,7 +29,7 @@ class MacroGUI(QMainWindow):
         super().__init__()
         self.app = MacroApp()
         self.setWindowTitle("Macro Recorder")
-        self.setGeometry(100, 100, 600, 500)
+        self.setGeometry(100, 100, 480, 320)
         # Default to always-on-top
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
 
@@ -35,6 +37,11 @@ class MacroGUI(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setSpacing(8)
+
+        # Toolbar
+        self._build_toolbar()
 
         # Create splitter for controls and log
         splitter = QSplitter(Qt.Orientation.Vertical)
@@ -42,14 +49,15 @@ class MacroGUI(QMainWindow):
         # Controls widget
         controls_widget = QWidget()
         controls_layout = QVBoxLayout(controls_widget)
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+        controls_layout.setSpacing(8)
         self.setup_ui(controls_layout)
         splitter.addWidget(controls_widget)
 
-        # Log console
+        # Log console inside a visually separated section
         self.log_console = QTextEdit()
         self.log_console.setReadOnly(True)
         self.log_console.setMaximumHeight(200)
-        self.log_console.hide()  # Initially hidden
         self.log_console.setStyleSheet(
             """
             QTextEdit {
@@ -61,7 +69,29 @@ class MacroGUI(QMainWindow):
             }
         """
         )
-        splitter.addWidget(self.log_console)
+        self.log_section = QGroupBox("Log")
+        self.log_section.setStyleSheet(
+            """
+            QGroupBox {
+                border: 1px solid #c8c8c8;
+                border-radius: 4px;
+                margin-top: 8px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 8px;
+                padding: 0 4px;
+                color: #666;
+                font-weight: 600;
+            }
+        """
+        )
+        log_section_layout = QVBoxLayout(self.log_section)
+        log_section_layout.setContentsMargins(8, 8, 8, 8)
+        log_section_layout.setSpacing(6)
+        log_section_layout.addWidget(self.log_console)
+        self.log_section.hide()  # Initially hidden
+        splitter.addWidget(self.log_section)
 
         # Set splitter proportions
         splitter.setStretchFactor(0, 1)
@@ -72,6 +102,8 @@ class MacroGUI(QMainWindow):
         # Status bar
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
+        # Visual separator for footer
+        self.status_bar.setStyleSheet("QStatusBar { border-top: 1px solid #c8c8c8; }")
         self.status_bar.showMessage("Ready - Click Start Recording to begin")
 
         # Timer for updating log
@@ -90,115 +122,145 @@ class MacroGUI(QMainWindow):
         self.play_progress_timer = QTimer()
         self.play_progress_timer.timeout.connect(self.update_play_progress)
 
-        # In-window shortcuts (not global) for convenience
-        QShortcut(QKeySequence("F1"), self, self.start_recording_gui)
-        QShortcut(QKeySequence("F2"), self, self.stop_recording_gui)
-        QShortcut(QKeySequence("F3"), self, self.play_once_gui)
-        QShortcut(QKeySequence("F5"), self, self.stop_playback_gui)
+    def _build_toolbar(self):
+        toolbar = QToolBar("Main")
+        toolbar.setMovable(False)
+        toolbar.setIconSize(QSize(18, 18))
+        self.addToolBar(toolbar)
+        # Visual separator for topbar
+        toolbar.setStyleSheet("QToolBar { border-bottom: 1px solid #c8c8c8; }")
+
+        # Actions
+        self.action_start_rec = QAction("Start", self)
+        self.action_start_rec.setShortcut(QKeySequence("F1"))
+        self.action_start_rec.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.action_start_rec.triggered.connect(self.start_recording_gui)
+
+        self.action_stop_rec = QAction("Stop Rec", self)
+        self.action_stop_rec.setShortcut(QKeySequence("F2"))
+        self.action_stop_rec.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.action_stop_rec.triggered.connect(self.stop_recording_gui)
+
+        self.action_play_once = QAction("Play 1×", self)
+        self.action_play_once.setShortcut(QKeySequence("F3"))
+        self.action_play_once.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.action_play_once.triggered.connect(self.play_once_gui)
+
+        self.action_play_infinite = QAction("Play ∞", self)
+        self.action_play_infinite.triggered.connect(self.play_infinite_gui)
+
+        self.action_stop_play = QAction("Stop", self)
+        self.action_stop_play.setShortcut(QKeySequence("F5"))
+        self.action_stop_play.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.action_stop_play.triggered.connect(self.stop_playback_gui)
+
+        toolbar.addAction(self.action_start_rec)
+        toolbar.addAction(self.action_stop_rec)
+        toolbar.addSeparator()
+        toolbar.addAction(self.action_play_once)
+        toolbar.addAction(self.action_play_infinite)
+        toolbar.addAction(self.action_stop_play)
+        toolbar.addSeparator()
+
+        self.action_save = QAction("Save", self)
+        self.action_save.triggered.connect(self.save_macro)
+        self.action_load = QAction("Load", self)
+        self.action_load.triggered.connect(self.load_macro)
+        toolbar.addAction(self.action_save)
+        toolbar.addAction(self.action_load)
+        toolbar.addSeparator()
+
+        self.toggle_log_action = QAction("Show Log", self)
+        self.toggle_log_action.setCheckable(True)
+        self.toggle_log_action.toggled.connect(self._toggle_log_from_action)
+        toolbar.addAction(self.toggle_log_action)
+
+        self.always_on_top_action = QAction("Always on Top", self)
+        self.always_on_top_action.setCheckable(True)
+        self.always_on_top_action.setChecked(True)
+        self.always_on_top_action.toggled.connect(self.on_always_on_top_toggled)
+        toolbar.addAction(self.always_on_top_action)
+
+        toolbar.addSeparator()
+        self.action_toggle_options = QAction("Options", self)
+        self.action_toggle_options.setCheckable(True)
+        self.action_toggle_options.setChecked(False)
+        self.action_toggle_options.toggled.connect(self._toggle_options_panel)
+        toolbar.addAction(self.action_toggle_options)
+
+        toolbar.addSeparator()
+        self.action_help = QAction("Help", self)
+        self.action_help.triggered.connect(self._show_help)
+        toolbar.addAction(self.action_help)
 
     def setup_ui(self, layout):
-        # Record buttons
-        record_group = QGroupBox("Recording")
-        record_layout = QVBoxLayout(record_group)
-
-        record_btn = QPushButton("Start Recording")
-        record_btn.clicked.connect(self.start_recording_gui)
-        record_layout.addWidget(record_btn)
-
-        stop_record_btn = QPushButton("Stop Recording")
-        stop_record_btn.clicked.connect(self.stop_recording_gui)
-        record_layout.addWidget(stop_record_btn)
-
-        layout.addWidget(record_group)
-
-        # Playback controls
-        play_group = QGroupBox("Playback")
-        play_layout = QVBoxLayout(play_group)
-
-        play_once_btn = QPushButton("Play Once")
-        play_once_btn.clicked.connect(self.play_once_gui)
-        play_layout.addWidget(play_once_btn)
-
-        play_infinite_btn = QPushButton("Play Infinite")
-        play_infinite_btn.clicked.connect(self.play_infinite_gui)
-        play_layout.addWidget(play_infinite_btn)
-
-        # Loop count input
-        loop_layout = QHBoxLayout()
-        loop_layout.addWidget(QLabel("Loops:"))
+        # Compact playback row
+        playback_row = QHBoxLayout()
+        playback_row.addWidget(QLabel("Loops:"))
         self.loop_entry = QLineEdit("5")
-        self.loop_entry.setFixedWidth(50)
-        loop_layout.addWidget(self.loop_entry)
+        self.loop_entry.setFixedWidth(60)
+        playback_row.addWidget(self.loop_entry)
 
         play_x_btn = QPushButton("Play")
         play_x_btn.clicked.connect(self.play_x)
-        loop_layout.addWidget(play_x_btn)
-        loop_layout.addStretch()
+        playback_row.addWidget(play_x_btn)
 
-        play_layout.addLayout(loop_layout)
-
-        stop_btn = QPushButton("Stop Playback")
+        stop_btn = QPushButton("Stop")
         stop_btn.clicked.connect(self.stop_playback_gui)
-        play_layout.addWidget(stop_btn)
+        playback_row.addWidget(stop_btn)
 
-        layout.addWidget(play_group)
+        playback_row.addStretch()
+        layout.addLayout(playback_row)
 
-        # File operations
-        file_layout = QHBoxLayout()
-
-        save_btn = QPushButton("Save Macro")
-        save_btn.clicked.connect(self.save_macro)
-        file_layout.addWidget(save_btn)
-
-        load_btn = QPushButton("Load Macro")
-        load_btn.clicked.connect(self.load_macro)
-        file_layout.addWidget(load_btn)
-
-        # Log controls
-        log_controls_layout = QHBoxLayout()
-
-        self.toggle_log_btn = QPushButton("Show Log Console")
-        self.toggle_log_btn.setCheckable(True)
-        self.toggle_log_btn.clicked.connect(self.toggle_log_console)
-        log_controls_layout.addWidget(self.toggle_log_btn)
-
-        clear_log_btn = QPushButton("Clear Log")
-        clear_log_btn.clicked.connect(self.clear_log)
-        log_controls_layout.addWidget(clear_log_btn)
-
-        # Always-on-top toggle
-        self.always_on_top_checkbox = QCheckBox("Always on Top")
-        self.always_on_top_checkbox.setChecked(True)
-        self.always_on_top_checkbox.stateChanged.connect(self.on_always_on_top_changed)
-        log_controls_layout.addWidget(self.always_on_top_checkbox)
+        # Options panel (advanced)
+        self.options_group = QGroupBox("Options")
+        options_layout = QHBoxLayout(self.options_group)
+        options_layout.setContentsMargins(8, 8, 8, 8)
+        options_layout.setSpacing(12)
 
         # Activate underlying app toggles
         self.activate_on_record_checkbox = QCheckBox("Activate app on Record")
         self.activate_on_record_checkbox.setChecked(True)
-        log_controls_layout.addWidget(self.activate_on_record_checkbox)
+        options_layout.addWidget(self.activate_on_record_checkbox)
 
         self.activate_on_play_checkbox = QCheckBox("Activate app on Play")
         self.activate_on_play_checkbox.setChecked(True)
-        log_controls_layout.addWidget(self.activate_on_play_checkbox)
+        options_layout.addWidget(self.activate_on_play_checkbox)
 
-        log_controls_layout.addStretch()
-        file_layout.addLayout(log_controls_layout)
+        clear_log_btn = QPushButton("Clear Log")
+        clear_log_btn.clicked.connect(self.clear_log)
+        options_layout.addWidget(clear_log_btn)
 
-        file_layout.addStretch()
-        layout.addLayout(file_layout)
+        options_layout.addStretch()
+        self.options_group.setVisible(False)
+        layout.addWidget(self.options_group)
 
-        # Shortcuts/help
-        shortcuts_group = QGroupBox("Shortcuts")
-        shortcuts_layout = QVBoxLayout(shortcuts_group)
-        shortcuts_label = QLabel(
-            "F1 – Start Recording (backgrounds window)\n"
-            "F2 – Stop Recording (restores window)\n"
-            "F3 – Play Once\n"
-            "F5 – Stop Playback"
+        # Shortcuts (compact, always visible)
+        self.shortcuts_group = QGroupBox("Shortcuts")
+        self.shortcuts_group.setStyleSheet(
+            """
+            QGroupBox {
+                border: 1px solid #e0e0e0;
+                border-radius: 4px;
+                margin-top: 8px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 8px;
+                padding: 0 4px;
+                color: #666;
+                font-weight: 600;
+            }
+        """
         )
+        shortcuts_layout = QVBoxLayout(self.shortcuts_group)
+        shortcuts_layout.setContentsMargins(8, 8, 8, 8)
+        shortcuts_layout.setSpacing(4)
+        shortcuts_label = QLabel("F1 – Start • F2 – Stop Rec • F3 – Play Once • F5 – Stop")
         shortcuts_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        shortcuts_label.setStyleSheet("color: #666;")
         shortcuts_layout.addWidget(shortcuts_label)
-        layout.addWidget(shortcuts_group)
+        layout.addWidget(self.shortcuts_group)
 
     def start_recording_gui(self):
         if not self.app.recorder.recording and not self.app.player.playing:
@@ -208,10 +270,10 @@ class MacroGUI(QMainWindow):
                 # Instead of hiding, drop always-on-top and send window to background
                 if self.isVisible():
                     # Remember if we need to restore always-on-top after recording
-                    if self.always_on_top_checkbox.isChecked():
+                    if self.always_on_top_action.isChecked():
                         self._restore_on_top_after_record = True
-                        # Uncheck triggers flag update via on_always_on_top_changed
-                        self.always_on_top_checkbox.setChecked(False)
+                        # Uncheck triggers flag update
+                        self.always_on_top_action.setChecked(False)
                     # Send behind other windows but keep taskbar entry and shortcuts active
                     self.lower()
 
@@ -220,14 +282,16 @@ class MacroGUI(QMainWindow):
                     self.activate_previous_app()
 
                 # Show log console first
-                self.log_console.show()
+                self.log_section.show()
                 self.log_console.clear()
                 self.log_console.append("📝 Initializing Recording Session...")
                 self.log_console.append("=" * 50)
 
                 # Update button text immediately
-                self.toggle_log_btn.setText("Hide Log Console")
-                self.toggle_log_btn.setChecked(True)
+                self.toggle_log_action.blockSignals(True)
+                self.toggle_log_action.setChecked(True)
+                self.toggle_log_action.setText("Hide Log")
+                self.toggle_log_action.blockSignals(False)
 
                 # Initialize counters first
                 self.last_event_count = 0
@@ -265,8 +329,10 @@ class MacroGUI(QMainWindow):
                 )
 
                 # Reset button state
-                self.toggle_log_btn.setText("Show Log Console")
-                self.toggle_log_btn.setChecked(False)
+                self.toggle_log_action.blockSignals(True)
+                self.toggle_log_action.setText("Show Log")
+                self.toggle_log_action.setChecked(False)
+                self.toggle_log_action.blockSignals(False)
 
         else:
             self.status_bar.showMessage(
@@ -292,8 +358,8 @@ class MacroGUI(QMainWindow):
             if self._restore_on_top_after_record:
                 self._restore_on_top_after_record = False
                 # Restore always-on-top if it was previously enabled
-                if not self.always_on_top_checkbox.isChecked():
-                    self.always_on_top_checkbox.setChecked(True)
+                if not self.always_on_top_action.isChecked():
+                    self.always_on_top_action.setChecked(True)
                 # Bring window to front
                 self.show()
                 self.raise_()
@@ -306,9 +372,9 @@ class MacroGUI(QMainWindow):
         if self.app.macro_data and not self.app.player.playing:
             # Send window to background for playback
             if self.isVisible():
-                if self.always_on_top_checkbox.isChecked():
+                if self.always_on_top_action.isChecked():
                     self._restore_on_top_after_play = True
-                    self.always_on_top_checkbox.setChecked(False)
+                    self.always_on_top_action.setChecked(False)
                 self.lower()
 
             # Enable global F5 stop while playing
@@ -328,9 +394,9 @@ class MacroGUI(QMainWindow):
         if self.app.macro_data and not self.app.player.playing:
             # Send window to background for playback
             if self.isVisible():
-                if self.always_on_top_checkbox.isChecked():
+                if self.always_on_top_action.isChecked():
                     self._restore_on_top_after_play = True
-                    self.always_on_top_checkbox.setChecked(False)
+                    self.always_on_top_action.setChecked(False)
                 self.lower()
 
             # Enable global F5 stop while playing
@@ -359,8 +425,8 @@ class MacroGUI(QMainWindow):
             # Restore window if we backgrounded it for playback
             if self._restore_on_top_after_play:
                 self._restore_on_top_after_play = False
-                if not self.always_on_top_checkbox.isChecked():
-                    self.always_on_top_checkbox.setChecked(True)
+                if not self.always_on_top_action.isChecked():
+                    self.always_on_top_action.setChecked(True)
                 self.show()
                 self.raise_()
                 self.activateWindow()
@@ -373,9 +439,9 @@ class MacroGUI(QMainWindow):
             if self.app.macro_data and not self.app.player.playing:
                 # Send window to background for playback
                 if self.isVisible():
-                    if self.always_on_top_checkbox.isChecked():
+                    if self.always_on_top_action.isChecked():
                         self._restore_on_top_after_play = True
-                        self.always_on_top_checkbox.setChecked(False)
+                        self.always_on_top_action.setChecked(False)
                     self.lower()
 
                 # Enable global F5 stop while playing
@@ -405,8 +471,8 @@ class MacroGUI(QMainWindow):
             # Restore window when playback completes naturally
             if self._restore_on_top_after_play:
                 self._restore_on_top_after_play = False
-                if not self.always_on_top_checkbox.isChecked():
-                    self.always_on_top_checkbox.setChecked(True)
+                if not self.always_on_top_action.isChecked():
+                    self.always_on_top_action.setChecked(True)
                 self.show()
                 self.raise_()
                 self.activateWindow()
@@ -508,14 +574,18 @@ class MacroGUI(QMainWindow):
 
     def toggle_log_console(self):
         """Toggle the visibility of the log console"""
-        if self.log_console.isVisible():
-            self.log_console.hide()
-            self.toggle_log_btn.setText("Show Log Console")
-            self.toggle_log_btn.setChecked(False)
+        if self.log_section.isVisible():
+            self.log_section.hide()
+            self.toggle_log_action.blockSignals(True)
+            self.toggle_log_action.setText("Show Log")
+            self.toggle_log_action.setChecked(False)
+            self.toggle_log_action.blockSignals(False)
         else:
-            self.log_console.show()
-            self.toggle_log_btn.setText("Hide Log Console")
-            self.toggle_log_btn.setChecked(True)
+            self.log_section.show()
+            self.toggle_log_action.blockSignals(True)
+            self.toggle_log_action.setText("Hide Log")
+            self.toggle_log_action.setChecked(True)
+            self.toggle_log_action.blockSignals(False)
 
     def clear_log(self):
         """Clear the log console"""
@@ -574,12 +644,42 @@ class MacroGUI(QMainWindow):
         except Exception:
             pass
 
-    def on_always_on_top_changed(self, state):
-        enabled = state == Qt.CheckState.Checked
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, enabled)
+    def on_always_on_top_toggled(self, checked):
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, checked)
         # Re-show to apply flag change on macOS/Qt
         if self.isVisible():
             self.show()
+
+    def _toggle_log_from_action(self, checked):
+        # Reflect action state to the console visibility
+        if checked:
+            if not self.log_section.isVisible():
+                self.log_section.show()
+            self.toggle_log_action.blockSignals(True)
+            self.toggle_log_action.setText("Hide Log")
+            self.toggle_log_action.setChecked(True)
+            self.toggle_log_action.blockSignals(False)
+        else:
+            if self.log_section.isVisible():
+                self.log_section.hide()
+            self.toggle_log_action.blockSignals(True)
+            self.toggle_log_action.setText("Show Log")
+            self.toggle_log_action.setChecked(False)
+            self.toggle_log_action.blockSignals(False)
+
+    def _toggle_options_panel(self, checked):
+        if hasattr(self, "options_group"):
+            self.options_group.setVisible(bool(checked))
+
+    def _show_help(self):
+        QMessageBox.information(
+            self,
+            "Shortcuts",
+            "F1 – Start Recording (backgrounds window)\n"
+            "F2 – Stop Recording (restores window)\n"
+            "F3 – Play Once\n"
+            "F5 – Stop Playback",
+        )
 
     def _start_playback_hotkeys(self):
         if self._play_hotkey_listener is not None:
@@ -643,8 +743,10 @@ class MacroGUI(QMainWindow):
             )
 
             # Reset button state
-            self.toggle_log_btn.setText("Show Log Console")
-            self.toggle_log_btn.setChecked(False)
+            self.toggle_log_action.blockSignals(True)
+            self.toggle_log_action.setText("Show Log")
+            self.toggle_log_action.setChecked(False)
+            self.toggle_log_action.blockSignals(False)
 
             # If we hid the window earlier, restore it on failure
             if self.was_hidden_for_recording:
