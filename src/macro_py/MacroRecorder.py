@@ -75,20 +75,17 @@ def _macro_listener_subprocess(event_queue: mp.Queue, stop_event: mp.Event) -> N
         def on_key_press(key):
             try:
                 # Intercept stop hotkey (F2) as a control event to parent
-                try:
-                    if key == keyboard.Key.f2:
-                        try:
-                            event_queue.put(
-                                {
-                                    "type": "__stop_request__",
-                                    "time": time.time() - start_time,
-                                },
-                                block=False,
-                            )
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
+                if key == keyboard.Key.f2:
+                    try:
+                        event_queue.put(
+                            {
+                                "type": "__stop_request__",
+                                "time": time.time() - start_time,
+                            },
+                            block=False,
+                        )
+                    except Exception as e:
+                        print(f"⚠️ [SUB] stop hotkey enqueue error: {e}")
 
                 try:
                     key_name = key.char
