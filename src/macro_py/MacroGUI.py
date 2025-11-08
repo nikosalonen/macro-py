@@ -417,18 +417,7 @@ class MacroGUI(QMainWindow):
             self.status_bar.showMessage("⏹️ Playback stopped")
             if self.play_progress_timer.isActive():
                 self.play_progress_timer.stop()
-            # Play completion sound on manual stop
-            QApplication.beep()
-            # Disable global F5 listener
-            self._stop_playback_hotkeys()
-            # Restore window if we backgrounded it for playback
-            if self._restore_on_top_after_play:
-                self._restore_on_top_after_play = False
-                if not self.always_on_top_action.isChecked():
-                    self.always_on_top_action.setChecked(True)
-                self.show()
-                self.raise_()
-                self.activateWindow()
+            self._cleanup_after_playback()
         else:
             self.status_bar.showMessage("Not currently playing")
 
@@ -458,18 +447,7 @@ class MacroGUI(QMainWindow):
         if not player.playing:
             if self.play_progress_timer.isActive():
                 self.play_progress_timer.stop()
-            # Play completion sound on natural finish
-            QApplication.beep()
-            # Disable global F5 listener
-            self._stop_playback_hotkeys()
-            # Restore window when playback completes naturally
-            if self._restore_on_top_after_play:
-                self._restore_on_top_after_play = False
-                if not self.always_on_top_action.isChecked():
-                    self.always_on_top_action.setChecked(True)
-                self.show()
-                self.raise_()
-                self.activateWindow()
+            self._cleanup_after_playback()
             return
         # Ensure at least 1 is shown when first loop starts
         current = player.current_loop or 1
@@ -710,6 +688,22 @@ class MacroGUI(QMainWindow):
                 logging.exception("Error stopping global hotkey listener")
             finally:
                 self._play_hotkey_listener = None
+
+    def _cleanup_after_playback(self):
+        # Beep to signal completion and stop any global hotkey listener
+        try:
+            QApplication.beep()
+        except Exception:
+            pass
+        self._stop_playback_hotkeys()
+        # Restore window if it was backgrounded for playback
+        if self._restore_on_top_after_play:
+            self._restore_on_top_after_play = False
+            if not self.always_on_top_action.isChecked():
+                self.always_on_top_action.setChecked(True)
+            self.show()
+            self.raise_()
+            self.activateWindow()
 
     def _prepare_for_playback(self):
         """Lower window, manage top-most state, and enable F5 stop hotkey."""
