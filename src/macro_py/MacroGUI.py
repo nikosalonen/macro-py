@@ -1,5 +1,6 @@
 import sys
 import subprocess
+import logging
 from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
