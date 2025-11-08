@@ -78,7 +78,13 @@ def _macro_listener_subprocess(event_queue: mp.Queue, stop_event: mp.Event) -> N
                 try:
                     if key == keyboard.Key.f2:
                         try:
-                            event_queue.put({"type": "__stop_request__"}, block=False)
+                            event_queue.put(
+                                {
+                                    "type": "__stop_request__",
+                                    "time": time.time() - start_time,
+                                },
+                                block=False,
+                            )
                         except Exception:
                             pass
                 except Exception:
@@ -532,7 +538,11 @@ class MacroRecorder:
                 try:
                     if key == keyboard.Key.f2:
                         # Signal the GUI via a synthetic control event
-                        self.events.append({"type": "__stop_request__"})
+                        try:
+                            timestamp = time.time() - (self.start_time or time.time())
+                        except Exception:
+                            timestamp = 0.0
+                        self.events.append({"type": "__stop_request__", "time": timestamp})
                         return
                 except Exception:
                     pass
