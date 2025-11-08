@@ -81,6 +81,7 @@ class MacroGUI(QMainWindow):
         self.mouse_move_count = 0
         self.was_hidden_for_recording = False
         self._restore_on_top_after_record = False
+        self._restore_on_top_after_play = False
         self.prev_front_app_name = None
 
         # Timer for updating playback progress in the status bar
@@ -301,6 +302,13 @@ class MacroGUI(QMainWindow):
 
     def play_once_gui(self):
         if self.app.macro_data and not self.app.player.playing:
+            # Send window to background for playback
+            if self.isVisible():
+                if self.always_on_top_checkbox.isChecked():
+                    self._restore_on_top_after_play = True
+                    self.always_on_top_checkbox.setChecked(False)
+                self.lower()
+
             self.app.play_once()
             self.status_bar.showMessage("▶️ Running 1/1 loops")
             if not self.play_progress_timer.isActive():
@@ -313,6 +321,13 @@ class MacroGUI(QMainWindow):
 
     def play_infinite_gui(self):
         if self.app.macro_data and not self.app.player.playing:
+            # Send window to background for playback
+            if self.isVisible():
+                if self.always_on_top_checkbox.isChecked():
+                    self._restore_on_top_after_play = True
+                    self.always_on_top_checkbox.setChecked(False)
+                self.lower()
+
             self.app.play_infinite()
             self.status_bar.showMessage("🔁 Running 1/∞ loops")
             if not self.play_progress_timer.isActive():
@@ -329,6 +344,14 @@ class MacroGUI(QMainWindow):
             self.status_bar.showMessage("⏹️ Playback stopped")
             if self.play_progress_timer.isActive():
                 self.play_progress_timer.stop()
+            # Restore window if we backgrounded it for playback
+            if self._restore_on_top_after_play:
+                self._restore_on_top_after_play = False
+                if not self.always_on_top_checkbox.isChecked():
+                    self.always_on_top_checkbox.setChecked(True)
+                self.show()
+                self.raise_()
+                self.activateWindow()
         else:
             self.status_bar.showMessage("Not currently playing")
 
@@ -336,6 +359,13 @@ class MacroGUI(QMainWindow):
         try:
             loops = int(self.loop_entry.text())
             if self.app.macro_data and not self.app.player.playing:
+                # Send window to background for playback
+                if self.isVisible():
+                    if self.always_on_top_checkbox.isChecked():
+                        self._restore_on_top_after_play = True
+                        self.always_on_top_checkbox.setChecked(False)
+                    self.lower()
+
                 self.app.play_x_times(loops)
                 self.status_bar.showMessage(f"🔄 Running 1/{loops} loops")
                 if not self.play_progress_timer.isActive():
@@ -353,6 +383,14 @@ class MacroGUI(QMainWindow):
         if not player.playing:
             if self.play_progress_timer.isActive():
                 self.play_progress_timer.stop()
+            # Restore window when playback completes naturally
+            if self._restore_on_top_after_play:
+                self._restore_on_top_after_play = False
+                if not self.always_on_top_checkbox.isChecked():
+                    self.always_on_top_checkbox.setChecked(True)
+                self.show()
+                self.raise_()
+                self.activateWindow()
             return
         # Ensure at least 1 is shown when first loop starts
         current = player.current_loop or 1
