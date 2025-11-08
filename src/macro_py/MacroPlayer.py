@@ -1,3 +1,8 @@
+"""Playback engine for executing recorded macro events.
+
+Provides mouse/keyboard playback with loop control and defensive handling
+for malformed events.
+"""
 import time
 import logging
 from pynput.mouse import Button, Controller as MouseController
@@ -5,6 +10,8 @@ from pynput.keyboard import Key, Controller as KeyboardController
 
 
 class MacroPlayer:
+    """Plays back recorded macro events using pynput controllers."""
+
     def __init__(self):
         self.mouse = MouseController()
         self.keyboard = KeyboardController()
@@ -14,10 +21,11 @@ class MacroPlayer:
         self.total_loops = 0  # -1 for infinite
 
     def play_macro(self, events, loops=1, speed=1.0):
-        """
-        Play macro events
-        loops: number of times to repeat (-1 for infinite)
-        speed: playback speed multiplier (2.0 = 2x speed, 0.5 = half speed)
+        """Play a list of recorded events.
+
+        - events: iterable of event dicts with 'type' and 'time' fields
+        - loops: number of repetitions (-1 for infinite)
+        - speed: playback speed multiplier (e.g., 2.0 = double speed)
         """
         self.playing = True
         self.stop_flag = False
@@ -59,6 +67,7 @@ class MacroPlayer:
         self.playing = False
 
     def execute_event(self, event):
+        """Execute a single event dict if it contains required fields."""
         event_type = event.get("type", "")
 
         if event_type == "mouse_move":
@@ -107,6 +116,7 @@ class MacroPlayer:
             self.keyboard.release(key)
 
     def parse_button(self, button_str):
+        """Map a recorded button string to a pynput Button."""
         if "left" in button_str.lower():
             return Button.left
         elif "right" in button_str.lower():
@@ -116,6 +126,7 @@ class MacroPlayer:
         return Button.left
 
     def parse_key(self, key_str):
+        """Map a recorded key string to a pynput Key or plain string."""
         # Handle special keys
         if key_str.startswith("Key."):
             key_name = key_str.replace("Key.", "")
@@ -123,4 +134,5 @@ class MacroPlayer:
         return key_str
 
     def stop_playback(self):
+        """Signal the playback loop to stop after the current event."""
         self.stop_flag = True

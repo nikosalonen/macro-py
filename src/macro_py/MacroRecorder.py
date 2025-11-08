@@ -1,3 +1,8 @@
+"""Event recorder for mouse and keyboard.
+
+Uses pynput to capture events. On macOS, runs listeners in a subprocess to
+avoid CGEventTap conflicts with Qt, forwarding events to the parent process.
+"""
 import time
 import json
 import sys

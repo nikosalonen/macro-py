@@ -1,3 +1,7 @@
+"""PyQt6 GUI for recording and playing macros.
+
+Compact window with toolbar, options, and a log section.
+"""
 import sys
 import subprocess
 import logging
@@ -26,6 +30,7 @@ from pynput import keyboard
 
 
 class MacroGUI(QMainWindow):
+    """Main window for recording and playback controls with logging."""
     def __init__(self):
         super().__init__()
         self.app = MacroApp()
@@ -124,6 +129,7 @@ class MacroGUI(QMainWindow):
         self.play_progress_timer.timeout.connect(self.update_play_progress)
 
     def _build_toolbar(self):
+        """Create the main toolbar and wire up actions and shortcuts."""
         toolbar = QToolBar("Main")
         toolbar.setMovable(False)
         toolbar.setIconSize(QSize(18, 18))
@@ -195,6 +201,7 @@ class MacroGUI(QMainWindow):
         toolbar.addAction(self.action_help)
 
     def setup_ui(self, layout):
+        """Build compact central controls, options panel, and shortcuts strip."""
         # Compact playback row
         playback_row = QHBoxLayout()
         playback_row.addWidget(QLabel("Loops:"))
@@ -257,13 +264,14 @@ class MacroGUI(QMainWindow):
         shortcuts_layout = QVBoxLayout(self.shortcuts_group)
         shortcuts_layout.setContentsMargins(8, 8, 8, 8)
         shortcuts_layout.setSpacing(4)
-        shortcuts_label = QLabel("F1 – Start • F2 – Stop Rec • F3 – Play Once • F5 – Stop")
+        shortcuts_label = QLabel("F1 - Start • F2 - Stop Rec • F3 - Play Once • F5 - Stop")
         shortcuts_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         shortcuts_label.setStyleSheet("color: #666;")
         shortcuts_layout.addWidget(shortcuts_label)
         layout.addWidget(self.shortcuts_group)
 
     def start_recording_gui(self):
+        """Start recording and update UI/log state accordingly."""
         if not self.app.recorder.recording and not self.app.player.playing:
             try:
                 self.status_bar.showMessage("🔄 Starting recording...")
@@ -341,6 +349,7 @@ class MacroGUI(QMainWindow):
             )
 
     def stop_recording_gui(self):
+        """Stop recording and restore window/topmost state if needed."""
         if self.app.recorder.recording:
             self.app.stop_recording()
             self.status_bar.showMessage(
@@ -370,6 +379,7 @@ class MacroGUI(QMainWindow):
             self.status_bar.showMessage("Not currently recording")
 
     def play_once_gui(self):
+        """Prepare and play current macro once."""
         if self.app.macro_data and not self.app.player.playing:
             # Prepare UI and hotkeys
             self._prepare_for_playback()
@@ -385,6 +395,7 @@ class MacroGUI(QMainWindow):
             self.status_bar.showMessage("No macro to play or already playing")
 
     def play_infinite_gui(self):
+        """Prepare and play current macro in infinite loop until stopped."""
         if self.app.macro_data and not self.app.player.playing:
             # Prepare UI and hotkeys
             self._prepare_for_playback()
@@ -400,6 +411,7 @@ class MacroGUI(QMainWindow):
             self.status_bar.showMessage("No macro to play or already playing")
 
     def stop_playback_gui(self):
+        """Stop playback, clean up hotkeys, and restore window state."""
         if self.app.player.playing:
             self.app.stop_playback()
             self.status_bar.showMessage("⏹️ Playback stopped")
@@ -421,6 +433,7 @@ class MacroGUI(QMainWindow):
             self.status_bar.showMessage("Not currently playing")
 
     def play_x(self):
+        """Play current macro a user-specified number of loops."""
         try:
             loops = int(self.loop_entry.text())
             if self.app.macro_data and not self.app.player.playing:
@@ -440,6 +453,7 @@ class MacroGUI(QMainWindow):
             self.status_bar.showMessage("Invalid loop count")
 
     def update_play_progress(self):
+        """Update loop progress in the status bar; restore window when finished."""
         player = self.app.player
         if not player.playing:
             if self.play_progress_timer.isActive():
@@ -466,6 +480,7 @@ class MacroGUI(QMainWindow):
             self.status_bar.showMessage(f"🔄 Running {current}/{total} loops")
 
     def save_macro(self):
+        """Save the current macro to a JSON file chosen by the user."""
         filename, _ = QFileDialog.getSaveFileName(
             self, "Save Macro", "", "JSON files (*.json)"
         )
@@ -477,6 +492,7 @@ class MacroGUI(QMainWindow):
             self.status_bar.showMessage(f"Saved to {filename}")
 
     def load_macro(self):
+        """Load a macro from a JSON file chosen by the user."""
         filename, _ = QFileDialog.getOpenFileName(
             self, "Load Macro", "", "JSON files (*.json)"
         )
@@ -625,6 +641,7 @@ class MacroGUI(QMainWindow):
             pass
 
     def on_always_on_top_toggled(self, checked):
+        """Apply the always-on-top flag and re-show the window to take effect."""
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, checked)
         # Re-show to apply flag change on macOS/Qt
         if self.isVisible():
@@ -648,20 +665,23 @@ class MacroGUI(QMainWindow):
             self.toggle_log_action.blockSignals(False)
 
     def _toggle_options_panel(self, checked):
+        """Show or hide the advanced options pane."""
         if hasattr(self, "options_group"):
             self.options_group.setVisible(bool(checked))
 
     def _show_help(self):
+        """Display a small dialog with keyboard shortcuts."""
         QMessageBox.information(
             self,
             "Shortcuts",
-            "F1 – Start Recording (backgrounds window)\n"
-            "F2 – Stop Recording (restores window)\n"
-            "F3 – Play Once\n"
-            "F5 – Stop Playback",
+            "F1 - Start Recording (backgrounds window)\n"
+            "F2 - Stop Recording (restores window)\n"
+            "F3 - Play Once\n"
+            "F5 - Stop Playback",
         )
 
     def _start_playback_hotkeys(self):
+        """Start a global listener that maps F5 to stop playback."""
         if self._play_hotkey_listener is not None:
             return
 
@@ -682,6 +702,7 @@ class MacroGUI(QMainWindow):
             self._play_hotkey_listener = None
 
     def _stop_playback_hotkeys(self):
+        """Stop and clear the global F5 playback stop listener if present."""
         if self._play_hotkey_listener is not None:
             try:
                 self._play_hotkey_listener.stop()
@@ -691,6 +712,7 @@ class MacroGUI(QMainWindow):
                 self._play_hotkey_listener = None
 
     def _prepare_for_playback(self):
+        """Lower window, manage top-most state, and enable F5 stop hotkey."""
         # Send window to background and manage always-on-top, then enable F5 stop
         if self.isVisible():
             if self.always_on_top_action.isChecked():
@@ -744,6 +766,7 @@ class MacroGUI(QMainWindow):
                 self.show()
 
     def run(self):
+        """Capture previous app (macOS) and show the GUI window."""
         # Don't setup global hotkeys in GUI mode - they conflict with PyQt6
         # Capture the app currently in front, so we can reactivate it when we hide ourselves
         self.capture_prev_front_app()
