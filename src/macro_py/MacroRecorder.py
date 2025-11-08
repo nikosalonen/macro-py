@@ -523,6 +523,15 @@ class MacroRecorder:
     def on_key_press(self, key):
         try:
             if self.recording:
+                # Intercept stop hotkey (F2) as a control event (non-macOS in-process)
+                try:
+                    if key == keyboard.Key.f2:
+                        # Signal the GUI via a synthetic control event
+                        self.events.append({"type": "__stop_request__"})
+                        return
+                except Exception:
+                    pass
+
                 try:
                     key_name = key.char
                 except AttributeError:

@@ -80,6 +80,7 @@ class MacroGUI(QMainWindow):
         self.last_mouse_pos = None
         self.mouse_move_count = 0
         self.was_hidden_for_recording = False
+        self._restore_on_top_after_record = False
         self.prev_front_app_name = None
 
         # Timer for updating playback progress in the status bar
@@ -201,10 +202,15 @@ class MacroGUI(QMainWindow):
             try:
                 self.status_bar.showMessage("🔄 Starting recording...")
 
-                # Hide the GUI so user doesn't have to
+                # Instead of hiding, drop always-on-top and send window to background
                 if self.isVisible():
-                    self.was_hidden_for_recording = True
-                    self.hide()
+                    # Remember if we need to restore always-on-top after recording
+                    if self.always_on_top_checkbox.isChecked():
+                        self._restore_on_top_after_record = True
+                        # Uncheck triggers flag update via on_always_on_top_changed
+                        self.always_on_top_checkbox.setChecked(False)
+                    # Send behind other windows but keep taskbar entry and shortcuts active
+                    self.lower()
 
                 # On macOS, bring back the previously active app so the user can start right away
                 if self.activate_on_record_checkbox.isChecked():
@@ -279,10 +285,16 @@ class MacroGUI(QMainWindow):
                 f"✅ Recording Complete: {len(self.app.macro_data)} events captured"
             )
 
-            # Restore GUI if we auto-hid it for recording
-            if self.was_hidden_for_recording:
-                self.was_hidden_for_recording = False
+            # Restore GUI if we changed z-order/flags for recording
+            if self._restore_on_top_after_record:
+                self._restore_on_top_after_record = False
+                # Restore always-on-top if it was previously enabled
+                if not self.always_on_top_checkbox.isChecked():
+                    self.always_on_top_checkbox.setChecked(True)
+                # Bring window to front
                 self.show()
+                self.raise_()
+                self.activateWindow()
 
         else:
             self.status_bar.showMessage("Not currently recording")
