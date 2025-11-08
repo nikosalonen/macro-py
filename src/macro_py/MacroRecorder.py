@@ -449,7 +449,7 @@ class MacroRecorder:
                         }
                     )
                 except Exception:
-                    pass
+                    logging.exception("Error appending control stop event")
                 continue
 
             # Regular event
