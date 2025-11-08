@@ -6,7 +6,7 @@ Provides both GUI and CLI interfaces.
 
 import sys
 import argparse
-from PyQt5.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication
 from .MacroGUI import MacroGUI
 from .MacroApp import MacroApp
 
@@ -30,7 +30,7 @@ def main():
             qt_app = QApplication(sys.argv)
             gui = MacroGUI()
             gui.run()
-            sys.exit(qt_app.exec_())
+            sys.exit(qt_app.exec())
     except KeyboardInterrupt:
         print("\nExiting...")
         sys.exit(0)

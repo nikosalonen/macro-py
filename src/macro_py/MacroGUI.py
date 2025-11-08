@@ -1,6 +1,6 @@
 import sys
 import subprocess
-from PyQt5.QtWidgets import (
+from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
     QVBoxLayout,
@@ -14,11 +14,10 @@ from PyQt5.QtWidgets import (
     QStatusBar,
     QTextEdit,
     QSplitter,
-    QShortcut,
     QCheckBox,
 )
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QKeySequence
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QKeySequence, QShortcut
 from .MacroApp import MacroApp
 
 
@@ -29,7 +28,7 @@ class MacroGUI(QMainWindow):
         self.setWindowTitle("Macro Recorder")
         self.setGeometry(100, 100, 600, 500)
         # Default to always-on-top
-        self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
 
         # Central widget with splitter
         central_widget = QWidget()
@@ -37,7 +36,7 @@ class MacroGUI(QMainWindow):
         main_layout = QVBoxLayout(central_widget)
 
         # Create splitter for controls and log
-        splitter = QSplitter(Qt.Vertical)
+        splitter = QSplitter(Qt.Orientation.Vertical)
 
         # Controls widget
         controls_widget = QWidget()
@@ -188,12 +187,12 @@ class MacroGUI(QMainWindow):
         shortcuts_group = QGroupBox("Shortcuts")
         shortcuts_layout = QVBoxLayout(shortcuts_group)
         shortcuts_label = QLabel(
-            "F1 – Start Recording (hides window)\n"
-            "F2 – Stop Recording (shows window)\n"
+            "F1 – Start Recording (backgrounds window)\n"
+            "F2 – Stop Recording (restores window)\n"
             "F3 – Play Once\n"
             "F5 – Stop Playback"
         )
-        shortcuts_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        shortcuts_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         shortcuts_layout.addWidget(shortcuts_label)
         layout.addWidget(shortcuts_group)
 
@@ -226,7 +225,7 @@ class MacroGUI(QMainWindow):
                 self.last_mouse_pos = None
                 self.mouse_move_count = 0
 
-                # Defer recording startup to avoid PyQt5 event loop conflicts
+                # Defer recording startup to avoid PyQt6 event loop conflicts
                 QTimer.singleShot(100, self._start_recording_delayed)
 
                 self.status_bar.showMessage("🔄 Initializing listeners...")
@@ -507,14 +506,14 @@ class MacroGUI(QMainWindow):
             pass
 
     def on_always_on_top_changed(self, state):
-        enabled = state == Qt.Checked
-        self.setWindowFlag(Qt.WindowStaysOnTopHint, enabled)
+        enabled = state == Qt.CheckState.Checked
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, enabled)
         # Re-show to apply flag change on macOS/Qt
         if self.isVisible():
             self.show()
 
     def _start_recording_delayed(self):
-        """Start recording after PyQt5 event loop is fully initialized"""
+        """Start recording after PyQt6 event loop is fully initialized"""
         try:
             self.app.start_recording()
 
@@ -556,7 +555,7 @@ class MacroGUI(QMainWindow):
                 self.show()
 
     def run(self):
-        # Don't setup global hotkeys in GUI mode - they conflict with PyQt5
+        # Don't setup global hotkeys in GUI mode - they conflict with PyQt6
         # Capture the app currently in front, so we can reactivate it when we hide ourselves
         self.capture_prev_front_app()
         self.show()
@@ -566,4 +565,4 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     gui = MacroGUI()
     gui.run()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
