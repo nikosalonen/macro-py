@@ -344,6 +344,8 @@ class MacroGUI(QMainWindow):
             self.status_bar.showMessage("⏹️ Playback stopped")
             if self.play_progress_timer.isActive():
                 self.play_progress_timer.stop()
+            # Play completion sound on manual stop
+            QApplication.beep()
             # Restore window if we backgrounded it for playback
             if self._restore_on_top_after_play:
                 self._restore_on_top_after_play = False
@@ -383,6 +385,8 @@ class MacroGUI(QMainWindow):
         if not player.playing:
             if self.play_progress_timer.isActive():
                 self.play_progress_timer.stop()
+            # Play completion sound on natural finish
+            QApplication.beep()
             # Restore window when playback completes naturally
             if self._restore_on_top_after_play:
                 self._restore_on_top_after_play = False
