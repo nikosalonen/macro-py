@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QKeySequence, QShortcut
 from .MacroApp import MacroApp
+from pynput import keyboard
 
 
 class MacroGUI(QMainWindow):
@@ -82,6 +83,7 @@ class MacroGUI(QMainWindow):
         self.was_hidden_for_recording = False
         self._restore_on_top_after_record = False
         self._restore_on_top_after_play = False
+        self._play_hotkey_listener = None
         self.prev_front_app_name = None
 
         # Timer for updating playback progress in the status bar
@@ -309,6 +311,9 @@ class MacroGUI(QMainWindow):
                     self.always_on_top_checkbox.setChecked(False)
                 self.lower()
 
+            # Enable global F5 stop while playing
+            self._start_playback_hotkeys()
+
             self.app.play_once()
             self.status_bar.showMessage("▶️ Running 1/1 loops")
             if not self.play_progress_timer.isActive():
@@ -328,6 +333,9 @@ class MacroGUI(QMainWindow):
                     self.always_on_top_checkbox.setChecked(False)
                 self.lower()
 
+            # Enable global F5 stop while playing
+            self._start_playback_hotkeys()
+
             self.app.play_infinite()
             self.status_bar.showMessage("🔁 Running 1/∞ loops")
             if not self.play_progress_timer.isActive():
@@ -346,6 +354,8 @@ class MacroGUI(QMainWindow):
                 self.play_progress_timer.stop()
             # Play completion sound on manual stop
             QApplication.beep()
+            # Disable global F5 listener
+            self._stop_playback_hotkeys()
             # Restore window if we backgrounded it for playback
             if self._restore_on_top_after_play:
                 self._restore_on_top_after_play = False
@@ -368,6 +378,9 @@ class MacroGUI(QMainWindow):
                         self.always_on_top_checkbox.setChecked(False)
                     self.lower()
 
+                # Enable global F5 stop while playing
+                self._start_playback_hotkeys()
+
                 self.app.play_x_times(loops)
                 self.status_bar.showMessage(f"🔄 Running 1/{loops} loops")
                 if not self.play_progress_timer.isActive():
@@ -387,6 +400,8 @@ class MacroGUI(QMainWindow):
                 self.play_progress_timer.stop()
             # Play completion sound on natural finish
             QApplication.beep()
+            # Disable global F5 listener
+            self._stop_playback_hotkeys()
             # Restore window when playback completes naturally
             if self._restore_on_top_after_play:
                 self._restore_on_top_after_play = False
@@ -565,6 +580,34 @@ class MacroGUI(QMainWindow):
         # Re-show to apply flag change on macOS/Qt
         if self.isVisible():
             self.show()
+
+    def _start_playback_hotkeys(self):
+        if self._play_hotkey_listener is not None:
+            return
+
+        def on_key_press(key):
+            try:
+                if key == keyboard.Key.f5:
+                    # Schedule stop on the Qt main thread
+                    QTimer.singleShot(0, self.stop_playback_gui)
+            except Exception:
+                pass
+
+        try:
+            self._play_hotkey_listener = keyboard.Listener(on_press=on_key_press)
+            self._play_hotkey_listener.start()
+        except Exception:
+            # If listener fails, we still continue without global hotkey
+            self._play_hotkey_listener = None
+
+    def _stop_playback_hotkeys(self):
+        if self._play_hotkey_listener is not None:
+            try:
+                self._play_hotkey_listener.stop()
+            except Exception:
+                pass
+            finally:
+                self._play_hotkey_listener = None
 
     def _start_recording_delayed(self):
         """Start recording after PyQt6 event loop is fully initialized"""
