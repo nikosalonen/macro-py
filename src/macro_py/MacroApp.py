@@ -1,3 +1,7 @@
+"""Core application logic orchestrating recording and playback.
+
+Provides CLI-mode hotkeys and bridges between the recorder and player.
+"""
 import time
 from threading import Thread
 from pynput import keyboard
@@ -6,6 +10,8 @@ from .MacroPlayer import MacroPlayer
 
 
 class MacroApp:
+    """High-level controller that manages recorder/player and hotkeys."""
+
     def __init__(self):
         self.recorder = MacroRecorder()
         self.player = MacroPlayer()
@@ -14,6 +20,7 @@ class MacroApp:
         self.running = True
 
     def setup_hotkeys(self):
+        """Configure global hotkeys for CLI mode (not used by GUI)."""
         # Global hotkeys with pynput
         def on_key_press(key):
             try:
@@ -37,6 +44,7 @@ class MacroApp:
         self.hotkey_listener.start()
 
     def start_recording(self):
+        """Start recording if not already recording or playing."""
         print("🔍 [DEBUG] MacroApp.start_recording called")
         if not self.recorder.recording and not self.player.playing:
             print(
@@ -51,6 +59,7 @@ class MacroApp:
             )
 
     def stop_recording(self):
+        """Stop recording and capture recorded events into macro_data."""
         if self.recorder.recording:
             print("⏹️ Recording stopped")
             self.recorder.stop_recording()
@@ -58,26 +67,31 @@ class MacroApp:
             print(f"Recorded {len(self.macro_data)} events")
 
     def play_once(self):
+        """Play current macro once."""
         if self.macro_data and not self.player.playing:
             print("▶️ Playing macro once...")
             Thread(target=self.player.play_macro, args=(self.macro_data, 1)).start()
 
     def play_infinite(self):
+        """Play current macro in an infinite loop (F5 to stop)."""
         if self.macro_data and not self.player.playing:
             print("🔁 Playing macro infinitely (F5 to stop)...")
             Thread(target=self.player.play_macro, args=(self.macro_data, -1)).start()
 
     def play_x_times(self, times):
+        """Play current macro a fixed number of times."""
         if self.macro_data and not self.player.playing:
             print(f"🔄 Playing macro {times} times...")
             Thread(target=self.player.play_macro, args=(self.macro_data, times)).start()
 
     def stop_playback(self):
+        """Stop playback if currently playing."""
         if self.player.playing:
             print("⏹️ Playback stopped")
             self.player.stop_playback()
 
     def save_current_macro(self):
+        """Save current macro to a timestamped JSON file (CLI mode)."""
         if self.macro_data:
             filename = f"macro_{int(time.time())}.json"
             self.recorder.events = self.macro_data
@@ -85,6 +99,7 @@ class MacroApp:
             print(f"💾 Saved to {filename}")
 
     def load_macro_file(self):
+        """Load a macro from a JSON file path entered by the user (CLI mode)."""
         # In a real app, you'd have a file dialog here
         filename = input("Enter macro filename: ")
         try:
@@ -95,6 +110,7 @@ class MacroApp:
             print(f"Error loading file: {e}")
 
     def run(self):
+        """Run CLI loop with global hotkeys until exit."""
         self.setup_hotkeys()
         print(
             """

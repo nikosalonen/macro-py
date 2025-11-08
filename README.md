@@ -1,14 +1,14 @@
 macro-py
 ========
 
-Macro recorder and player for macOS and Windows. It captures keyboard and mouse events, then replays them on demand. The package ships with a PyQt5 GUI and a CLI mode that share the same core engine.
+Macro recorder and player for macOS and Windows. It captures keyboard and mouse events, then replays them on demand. The package ships with a PyQt6 GUI and a CLI mode that share the same core engine.
 
 Requirements
 ------------
 
 - Python 3.12+
 - `pynput` for global keyboard and mouse hooks
-- `PyQt5` for the default GUI
+- `PyQt6` for the default GUI
 
 Install
 -------
@@ -64,7 +64,7 @@ Troubleshooting
 
 - macOS: if recording fails, re-check Accessibility privileges for your terminal or Python interpreter.
 - Windows: make sure the script runs as Administrator if hooks cannot be installed.
-- PyQt5 conflicts with the CLI hotkeys, so global shortcuts are disabled while the GUI is open.
+- PyQt6 conflicts with the CLI hotkeys, so global shortcuts are disabled while the GUI is open.
 
 Development
 -----------

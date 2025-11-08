@@ -1,3 +1,8 @@
+"""Event recorder for mouse and keyboard.
+
+Uses pynput to capture events. On macOS, runs listeners in a subprocess to
+avoid CGEventTap conflicts with Qt, forwarding events to the parent process.
+"""
 import time
 import json
 import sys
@@ -70,14 +75,18 @@ def _macro_listener_subprocess(event_queue: mp.Queue, stop_event: mp.Event) -> N
         def on_key_press(key):
             try:
                 # Intercept stop hotkey (F2) as a control event to parent
-                try:
-                    if key == keyboard.Key.f2:
-                        try:
-                            event_queue.put({"type": "__stop_request__"}, block=False)
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
+                if key == keyboard.Key.f2:
+                    try:
+                        event_queue.put(
+                            {
+                                "type": "__stop_request__",
+                                "time": time.time() - start_time,
+                            },
+                            block=False,
+                        )
+                    except Exception as e:
+                        print(f"⚠️ [SUB] stop hotkey enqueue error: {e}")
+                    return
 
                 try:
                     key_name = key.char
@@ -438,7 +447,7 @@ class MacroRecorder:
                         }
                     )
                 except Exception:
-                    pass
+                    logging.exception("Error appending control stop event")
                 continue
 
             # Regular event
@@ -523,6 +532,13 @@ class MacroRecorder:
     def on_key_press(self, key):
         try:
             if self.recording:
+                # Intercept stop hotkey (F2) as a control event (non-macOS in-process)
+                if key == keyboard.Key.f2:
+                    # Compute timestamp deterministically (0.0 if start_time is None)
+                    timestamp = 0.0 if self.start_time is None else time.time() - self.start_time
+                    self.events.append({"type": "__stop_request__", "time": timestamp})
+                    return
+
                 try:
                     key_name = key.char
                 except AttributeError:
@@ -535,8 +551,8 @@ class MacroRecorder:
                         "time": time.time() - self.start_time,
                     }
                 )
-        except Exception as e:
-            print(f"⚠️ on_key_press error: {e}")
+        except Exception:
+            logging.exception("on_key_press error")
 
     def on_key_release(self, key):
         try:
