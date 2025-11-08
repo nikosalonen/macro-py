@@ -35,6 +35,9 @@ class MacroPlayer:
 
                 # Skip control/meta events or events missing timing
                 event_type = event.get("type")
+                if event_type is None:
+                    print(f"❌ [DEBUG] Event type is None: {event}")
+                    continue
                 if event_type == "__stop_request__":
                     continue
                 event_time = event.get("time")
