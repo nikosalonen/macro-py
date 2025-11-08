@@ -86,6 +86,7 @@ def _macro_listener_subprocess(event_queue: mp.Queue, stop_event: mp.Event) -> N
                         )
                     except Exception as e:
                         print(f"⚠️ [SUB] stop hotkey enqueue error: {e}")
+                    return
 
                 try:
                     key_name = key.char
