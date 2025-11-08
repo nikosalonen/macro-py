@@ -371,15 +371,8 @@ class MacroGUI(QMainWindow):
 
     def play_once_gui(self):
         if self.app.macro_data and not self.app.player.playing:
-            # Send window to background for playback
-            if self.isVisible():
-                if self.always_on_top_action.isChecked():
-                    self._restore_on_top_after_play = True
-                    self.always_on_top_action.setChecked(False)
-                self.lower()
-
-            # Enable global F5 stop while playing
-            self._start_playback_hotkeys()
+            # Prepare UI and hotkeys
+            self._prepare_for_playback()
 
             self.app.play_once()
             self.status_bar.showMessage("▶️ Running 1/1 loops")
@@ -393,15 +386,8 @@ class MacroGUI(QMainWindow):
 
     def play_infinite_gui(self):
         if self.app.macro_data and not self.app.player.playing:
-            # Send window to background for playback
-            if self.isVisible():
-                if self.always_on_top_action.isChecked():
-                    self._restore_on_top_after_play = True
-                    self.always_on_top_action.setChecked(False)
-                self.lower()
-
-            # Enable global F5 stop while playing
-            self._start_playback_hotkeys()
+            # Prepare UI and hotkeys
+            self._prepare_for_playback()
 
             self.app.play_infinite()
             self.status_bar.showMessage("🔁 Running 1/∞ loops")
@@ -438,15 +424,8 @@ class MacroGUI(QMainWindow):
         try:
             loops = int(self.loop_entry.text())
             if self.app.macro_data and not self.app.player.playing:
-                # Send window to background for playback
-                if self.isVisible():
-                    if self.always_on_top_action.isChecked():
-                        self._restore_on_top_after_play = True
-                        self.always_on_top_action.setChecked(False)
-                    self.lower()
-
-                # Enable global F5 stop while playing
-                self._start_playback_hotkeys()
+                # Prepare UI and hotkeys
+                self._prepare_for_playback()
 
                 self.app.play_x_times(loops)
                 self.status_bar.showMessage(f"🔄 Running 1/{loops} loops")
@@ -692,13 +671,14 @@ class MacroGUI(QMainWindow):
                     # Schedule stop on the Qt main thread
                     QTimer.singleShot(0, self.stop_playback_gui)
             except Exception:
-                pass
+                logging.exception("Error in global hotkey on_key_press handler")
 
         try:
             self._play_hotkey_listener = keyboard.Listener(on_press=on_key_press)
             self._play_hotkey_listener.start()
-        except Exception:
-            # If listener fails, we still continue without global hotkey
+        except Exception as e:
+            # If listener fails, continue without global hotkey but log for diagnostics
+            logging.warning("Failed to start global hotkey listener: %s", e)
             self._play_hotkey_listener = None
 
     def _stop_playback_hotkeys(self):
@@ -706,9 +686,18 @@ class MacroGUI(QMainWindow):
             try:
                 self._play_hotkey_listener.stop()
             except Exception:
-                pass
+                logging.exception("Error stopping global hotkey listener")
             finally:
                 self._play_hotkey_listener = None
+
+    def _prepare_for_playback(self):
+        # Send window to background and manage always-on-top, then enable F5 stop
+        if self.isVisible():
+            if self.always_on_top_action.isChecked():
+                self._restore_on_top_after_play = True
+                self.always_on_top_action.setChecked(False)
+            self.lower()
+        self._start_playback_hotkeys()
 
     def _start_recording_delayed(self):
         """Start recording after PyQt6 event loop is fully initialized"""
