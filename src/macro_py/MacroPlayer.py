@@ -33,11 +33,19 @@ class MacroPlayer:
                 if self.stop_flag:
                     break
 
+                # Skip control/meta events or events missing timing
+                event_type = event.get("type")
+                if event_type == "__stop_request__":
+                    continue
+                event_time = event.get("time")
+                if not isinstance(event_time, (int, float)):
+                    continue
+
                 # Wait for the appropriate time
-                wait_time = (event["time"] - last_time) / speed
+                wait_time = (event_time - last_time) / speed
                 if wait_time > 0:
                     time.sleep(wait_time)
-                last_time = event["time"]
+                last_time = event_time
 
                 # Execute the event
                 self.execute_event(event)
@@ -47,7 +55,7 @@ class MacroPlayer:
         self.playing = False
 
     def execute_event(self, event):
-        event_type = event["type"]
+        event_type = event.get("type", "")
 
         if event_type == "mouse_move":
             self.mouse.position = (event["x"], event["y"])
