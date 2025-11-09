@@ -42,30 +42,53 @@ def _f5_hotkey_subprocess(stop_signal_queue, stop_event):
         stop_signal_queue: multiprocessing.Queue to send stop signals
         stop_event: multiprocessing.Event to signal subprocess termination
     """
+    import queue
     from pynput import keyboard as kb
+
+    # Set up logging for subprocess
+    logger = logging.getLogger(__name__)
 
     def on_key_press(key):
         try:
             if key == kb.Key.f5:
-                # Send stop signal to main process
+                # Send stop signal to main process with timeout
                 try:
-                    stop_signal_queue.put("STOP", block=False)
-                except Exception:
-                    pass  # Queue might be full or closed
-        except Exception:
+                    stop_signal_queue.put("STOP", timeout=0.1)
+                except queue.Full:
+                    logger.warning("F5 hotkey subprocess: Queue full, STOP signal dropped")
+                except (OSError, ValueError) as e:
+                    # Queue closed or invalid state
+                    logger.error("F5 hotkey subprocess: Queue error when sending STOP: %s", e)
+        except AttributeError:
+            # Key doesn't have the expected attributes
             pass
+        except Exception as e:
+            logger.exception("F5 hotkey subprocess: Unexpected error in on_key_press: %s", e)
 
+    listener = None
     try:
         listener = kb.Listener(on_press=on_key_press)
         listener.start()
+        logger.debug("F5 hotkey subprocess: Listener started")
 
         # Wait for stop event
         while not stop_event.is_set():
             stop_event.wait(timeout=0.1)
 
-        listener.stop()
-    except Exception:
-        pass  # Silent failure in subprocess
+        logger.debug("F5 hotkey subprocess: Stop event received, shutting down")
+    except Exception as e:
+        logger.exception("F5 hotkey subprocess: Error in main loop: %s", e)
+    finally:
+        # Always stop the listener on exit
+        if listener is not None:
+            try:
+                listener.stop()
+                # Wait for listener thread to finish
+                if hasattr(listener, 'join'):
+                    listener.join(timeout=1.0)
+                logger.debug("F5 hotkey subprocess: Listener stopped")
+            except Exception as e:
+                logger.error("F5 hotkey subprocess: Error stopping listener: %s", e)
 
 
 class MacroGUI(QMainWindow):
