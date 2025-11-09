@@ -951,6 +951,28 @@ class MacroGUI(QMainWindow):
                 self.was_hidden_for_recording = False
                 self.show()
 
+    def closeEvent(self, event):
+        """Handle application exit by cleaning up subprocess and threads."""
+        # Stop playback if active
+        if self.app.player.playing:
+            self.app.stop_playback()
+
+        # Stop recording if active
+        if self.app.recorder.recording:
+            self.app.stop_recording()
+
+        # Clean up F5 hotkey resources
+        self._stop_playback_hotkeys()
+
+        # Stop timers
+        if self.log_timer.isActive():
+            self.log_timer.stop()
+        if self.play_progress_timer.isActive():
+            self.play_progress_timer.stop()
+
+        # Accept the close event
+        event.accept()
+
     def run(self):
         """Capture previous app (macOS) and show the GUI window."""
         # Don't setup global hotkeys in GUI mode - they conflict with PyQt6
