@@ -729,15 +729,25 @@ class MacroGUI(QMainWindow):
 
     def _f5_signal_consumer(self):
         """Thread that monitors the F5 signal queue from subprocess."""
+        import queue
+
         while not self._f5_consumer_stop_event.is_set():
             try:
                 signal = self._f5_signal_queue.get(timeout=0.1)
                 if signal == "STOP":
                     # Schedule stop on the Qt main thread
                     QTimer.singleShot(0, self.stop_playback_gui)
+            except queue.Empty:
+                # Timeout - normal operation, continue polling
+                continue
+            except (OSError, ValueError):
+                # Queue closed or invalid state - exit gracefully
+                logging.debug("F5 consumer thread: Queue closed, exiting")
+                break
             except Exception:
-                # Queue.get timeout or queue closed
-                pass
+                # Unexpected error - log and exit to avoid infinite loop
+                logging.exception("F5 consumer thread: Unexpected error")
+                break
 
     def _start_playback_hotkeys(self):
         """Start a global listener that maps F5 to stop playback."""
