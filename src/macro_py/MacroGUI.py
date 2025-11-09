@@ -56,14 +56,14 @@ def _f5_hotkey_subprocess(stop_signal_queue, stop_event):
                     stop_signal_queue.put("STOP", timeout=0.1)
                 except queue.Full:
                     logger.warning("F5 hotkey subprocess: Queue full, STOP signal dropped")
-                except (OSError, ValueError) as e:
+                except (OSError, ValueError):
                     # Queue closed or invalid state
-                    logger.error("F5 hotkey subprocess: Queue error when sending STOP: %s", e)
+                    logger.exception("F5 hotkey subprocess: Queue error when sending STOP")
         except AttributeError:
             # Key doesn't have the expected attributes
             pass
-        except Exception as e:
-            logger.exception("F5 hotkey subprocess: Unexpected error in on_key_press: %s", e)
+        except Exception:
+            logger.exception("F5 hotkey subprocess: Unexpected error in on_key_press")
 
     listener = None
     try:
@@ -76,8 +76,8 @@ def _f5_hotkey_subprocess(stop_signal_queue, stop_event):
             stop_event.wait(timeout=0.1)
 
         logger.debug("F5 hotkey subprocess: Stop event received, shutting down")
-    except Exception as e:
-        logger.exception("F5 hotkey subprocess: Error in main loop: %s", e)
+    except Exception:
+        logger.exception("F5 hotkey subprocess: Error in main loop")
     finally:
         # Always stop the listener on exit
         if listener is not None:
@@ -87,8 +87,8 @@ def _f5_hotkey_subprocess(stop_signal_queue, stop_event):
                 if hasattr(listener, 'join'):
                     listener.join(timeout=1.0)
                 logger.debug("F5 hotkey subprocess: Listener stopped")
-            except Exception as e:
-                logger.error("F5 hotkey subprocess: Error stopping listener: %s", e)
+            except Exception:
+                logger.exception("F5 hotkey subprocess: Error stopping listener")
 
 
 class MacroGUI(QMainWindow):
