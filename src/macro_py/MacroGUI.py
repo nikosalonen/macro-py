@@ -5,6 +5,8 @@ Compact window with toolbar, options, and a log section.
 import sys
 import subprocess
 import logging
+import multiprocessing as mp
+import threading
 from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -27,6 +29,43 @@ from PyQt6.QtCore import Qt, QTimer, QSize
 from PyQt6.QtGui import QKeySequence, QShortcut, QAction, QIcon
 from .MacroApp import MacroApp
 from pynput import keyboard
+
+
+def _f5_hotkey_subprocess(stop_signal_queue, stop_event):
+    """
+    Subprocess function to listen for F5 key press on macOS.
+
+    This runs in a separate process to avoid CGEventTap conflicts with PyQt6.
+    When F5 is pressed, sends a signal to the main process via the queue.
+
+    Args:
+        stop_signal_queue: multiprocessing.Queue to send stop signals
+        stop_event: multiprocessing.Event to signal subprocess termination
+    """
+    from pynput import keyboard as kb
+
+    def on_key_press(key):
+        try:
+            if key == kb.Key.f5:
+                # Send stop signal to main process
+                try:
+                    stop_signal_queue.put("STOP", block=False)
+                except Exception:
+                    pass  # Queue might be full or closed
+        except Exception:
+            pass
+
+    try:
+        listener = kb.Listener(on_press=on_key_press)
+        listener.start()
+
+        # Wait for stop event
+        while not stop_event.is_set():
+            stop_event.wait(timeout=0.1)
+
+        listener.stop()
+    except Exception:
+        pass  # Silent failure in subprocess
 
 
 class MacroGUI(QMainWindow):
@@ -123,6 +162,13 @@ class MacroGUI(QMainWindow):
         self._restore_on_top_after_play = False
         self._play_hotkey_listener = None
         self.prev_front_app_name = None
+
+        # Subprocess components for F5 hotkey on macOS
+        self._f5_subprocess = None
+        self._f5_stop_event = None
+        self._f5_signal_queue = None
+        self._f5_consumer_thread = None
+        self._f5_consumer_stop_event = None
 
         # Timer for updating playback progress in the status bar
         self.play_progress_timer = QTimer()
@@ -658,29 +704,103 @@ class MacroGUI(QMainWindow):
             "F5 - Stop Playback",
         )
 
-    def _start_playback_hotkeys(self):
-        """Start a global listener that maps F5 to stop playback."""
-        if self._play_hotkey_listener is not None:
-            return
-
-        def on_key_press(key):
+    def _f5_signal_consumer(self):
+        """Thread that monitors the F5 signal queue from subprocess."""
+        while not self._f5_consumer_stop_event.is_set():
             try:
-                if key == keyboard.Key.f5:
+                signal = self._f5_signal_queue.get(timeout=0.1)
+                if signal == "STOP":
                     # Schedule stop on the Qt main thread
                     QTimer.singleShot(0, self.stop_playback_gui)
             except Exception:
-                logging.exception("Error in global hotkey on_key_press handler")
+                # Queue.get timeout or queue closed
+                pass
 
-        try:
-            self._play_hotkey_listener = keyboard.Listener(on_press=on_key_press)
-            self._play_hotkey_listener.start()
-        except Exception as e:
-            # If listener fails, continue without global hotkey but log for diagnostics
-            logging.warning("Failed to start global hotkey listener: %s", e)
-            self._play_hotkey_listener = None
+    def _start_playback_hotkeys(self):
+        """Start a global listener that maps F5 to stop playback."""
+        # Check if already running
+        if self._play_hotkey_listener is not None or self._f5_subprocess is not None:
+            return
+
+        # macOS: use subprocess to avoid CGEventTap conflict with PyQt6
+        if sys.platform == "darwin":
+            try:
+                mp_ctx = mp.get_context("spawn")
+                self._f5_signal_queue = mp_ctx.Queue(maxsize=10)
+                self._f5_stop_event = mp_ctx.Event()
+
+                # Start subprocess
+                self._f5_subprocess = mp_ctx.Process(
+                    target=_f5_hotkey_subprocess,
+                    args=(self._f5_signal_queue, self._f5_stop_event),
+                    daemon=True,
+                )
+                self._f5_subprocess.start()
+
+                # Start consumer thread to monitor queue
+                self._f5_consumer_stop_event = threading.Event()
+                self._f5_consumer_thread = threading.Thread(
+                    target=self._f5_signal_consumer,
+                    name="F5HotkeyConsumer",
+                    daemon=True,
+                )
+                self._f5_consumer_thread.start()
+
+                logging.debug("Started F5 hotkey subprocess on macOS")
+            except Exception as e:
+                logging.warning("Failed to start F5 hotkey subprocess: %s", e)
+                self._cleanup_f5_subprocess()
+        else:
+            # Windows/Linux: use in-process listener (no CGEventTap conflict)
+            def on_key_press(key):
+                try:
+                    if key == keyboard.Key.f5:
+                        # Schedule stop on the Qt main thread
+                        QTimer.singleShot(0, self.stop_playback_gui)
+                except Exception:
+                    logging.exception("Error in global hotkey on_key_press handler")
+
+            try:
+                self._play_hotkey_listener = keyboard.Listener(on_press=on_key_press)
+                self._play_hotkey_listener.start()
+            except Exception as e:
+                # If listener fails, continue without global hotkey but log for diagnostics
+                logging.warning("Failed to start global hotkey listener: %s", e)
+                self._play_hotkey_listener = None
+
+    def _cleanup_f5_subprocess(self):
+        """Clean up the F5 hotkey subprocess and associated resources."""
+        # Stop consumer thread
+        if self._f5_consumer_stop_event is not None:
+            self._f5_consumer_stop_event.set()
+        if self._f5_consumer_thread is not None and self._f5_consumer_thread.is_alive():
+            self._f5_consumer_thread.join(timeout=1.0)
+
+        # Stop subprocess
+        if self._f5_stop_event is not None:
+            self._f5_stop_event.set()
+        if self._f5_subprocess is not None and self._f5_subprocess.is_alive():
+            self._f5_subprocess.join(timeout=1.0)
+            if self._f5_subprocess.is_alive():
+                self._f5_subprocess.terminate()
+
+        # Clear references
+        self._f5_subprocess = None
+        self._f5_stop_event = None
+        self._f5_signal_queue = None
+        self._f5_consumer_thread = None
+        self._f5_consumer_stop_event = None
 
     def _stop_playback_hotkeys(self):
         """Stop and clear the global F5 playback stop listener if present."""
+        # macOS subprocess
+        if self._f5_subprocess is not None:
+            try:
+                self._cleanup_f5_subprocess()
+            except Exception:
+                logging.exception("Error stopping F5 hotkey subprocess")
+
+        # Windows/Linux in-process listener
         if self._play_hotkey_listener is not None:
             try:
                 self._play_hotkey_listener.stop()
