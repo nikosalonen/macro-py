@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
 )
 from PyQt6.QtCore import Qt, QTimer, QSize
-from PyQt6.QtGui import QKeySequence, QShortcut, QAction, QIcon
+from PyQt6.QtGui import QKeySequence, QAction
 from .MacroApp import MacroApp
 from pynput import keyboard
 
