@@ -3,6 +3,8 @@
 Compact window with toolbar, options, and a log section.
 """
 import sys
+import os
+import signal
 import subprocess
 import logging
 import multiprocessing as mp
@@ -802,9 +804,6 @@ class MacroGUI(QMainWindow):
 
     def _cleanup_f5_subprocess(self):
         """Clean up the F5 hotkey subprocess and associated resources."""
-        import os
-        import signal as sig
-
         # Stop consumer thread
         if self._f5_consumer_stop_event is not None:
             self._f5_consumer_stop_event.set()
@@ -829,7 +828,7 @@ class MacroGUI(QMainWindow):
                 if hasattr(os, 'kill') and hasattr(self._f5_subprocess, 'pid'):
                     # POSIX systems
                     try:
-                        os.kill(self._f5_subprocess.pid, sig.SIGKILL)
+                        os.kill(self._f5_subprocess.pid, signal.SIGKILL)
                     except (OSError, ProcessLookupError):
                         pass  # Process already terminated
                 else:
