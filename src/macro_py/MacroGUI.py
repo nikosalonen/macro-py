@@ -756,7 +756,6 @@ class MacroGUI(QMainWindow):
                 self._f5_subprocess = mp_ctx.Process(
                     target=_f5_hotkey_subprocess,
                     args=(self._f5_signal_queue, self._f5_stop_event),
-                    daemon=True,
                 )
                 self._f5_subprocess.start()
 
