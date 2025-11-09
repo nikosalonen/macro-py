@@ -776,7 +776,6 @@ class MacroGUI(QMainWindow):
                 self._f5_consumer_thread = threading.Thread(
                     target=self._f5_signal_consumer,
                     name="F5HotkeyConsumer",
-                    daemon=True,
                 )
                 self._f5_consumer_thread.start()
 
@@ -809,7 +808,8 @@ class MacroGUI(QMainWindow):
             self._f5_consumer_stop_event.set()
         if self._f5_consumer_thread is not None and self._f5_consumer_thread.is_alive():
             self._f5_consumer_thread.join(timeout=1.0)
-
+        if self._f5_consumer_thread.is_alive():
+            logging.warning("F5 consumer thread did not stop within timeout")
         # Stop subprocess with verification
         if self._f5_stop_event is not None:
             self._f5_stop_event.set()
