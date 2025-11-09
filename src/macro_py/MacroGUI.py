@@ -792,19 +792,60 @@ class MacroGUI(QMainWindow):
 
     def _cleanup_f5_subprocess(self):
         """Clean up the F5 hotkey subprocess and associated resources."""
+        import os
+        import signal as sig
+
         # Stop consumer thread
         if self._f5_consumer_stop_event is not None:
             self._f5_consumer_stop_event.set()
         if self._f5_consumer_thread is not None and self._f5_consumer_thread.is_alive():
             self._f5_consumer_thread.join(timeout=1.0)
 
-        # Stop subprocess
+        # Stop subprocess with verification
         if self._f5_stop_event is not None:
             self._f5_stop_event.set()
+
         if self._f5_subprocess is not None and self._f5_subprocess.is_alive():
+            # First attempt: wait for graceful shutdown
             self._f5_subprocess.join(timeout=1.0)
+
+            # Second attempt: terminate if still alive
             if self._f5_subprocess.is_alive():
                 self._f5_subprocess.terminate()
+                self._f5_subprocess.join(timeout=0.5)
+
+            # Third attempt: force kill if still alive
+            if self._f5_subprocess.is_alive():
+                if hasattr(os, 'kill') and hasattr(self._f5_subprocess, 'pid'):
+                    # POSIX systems
+                    try:
+                        os.kill(self._f5_subprocess.pid, sig.SIGKILL)
+                    except (OSError, ProcessLookupError):
+                        pass  # Process already terminated
+                else:
+                    # Fallback for non-POSIX or if kill() fails
+                    self._f5_subprocess.kill()
+
+                self._f5_subprocess.join(timeout=0.5)
+
+            # Verify termination
+            if self._f5_subprocess.exitcode is None:
+                logging.warning("F5 subprocess did not terminate cleanly (exitcode: %s)",
+                              self._f5_subprocess.exitcode)
+            else:
+                logging.debug("F5 subprocess terminated with exitcode: %s",
+                            self._f5_subprocess.exitcode)
+
+        # Close and cleanup the queue
+        if self._f5_signal_queue is not None:
+            try:
+                self._f5_signal_queue.close()
+                # Release background thread resources for multiprocessing.Queue
+                if hasattr(self._f5_signal_queue, 'join_thread'):
+                    self._f5_signal_queue.join_thread()
+                logging.debug("F5 signal queue closed and joined")
+            except Exception as e:
+                logging.warning("Error closing F5 signal queue: %s", e)
 
         # Clear references
         self._f5_subprocess = None
