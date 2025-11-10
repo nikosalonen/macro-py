@@ -21,14 +21,13 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QFileDialog,
     QStatusBar,
-    QTextEdit,
     QListView,
     QSplitter,
     QCheckBox,
     QToolBar,
     QMessageBox,
 )
-from PyQt6.QtCore import Qt, QTimer, QSize, QAbstractListModel, pyqtSignal, QModelIndex
+from PyQt6.QtCore import Qt, QTimer, QSize, QAbstractListModel, QModelIndex
 from PyQt6.QtGui import QKeySequence, QAction, QColor, QPalette
 from PyQt6.QtWidgets import QStyledItemDelegate
 from .MacroApp import MacroApp
@@ -228,13 +227,13 @@ class EventLogDelegate(QStyledItemDelegate):
         if text:
             # Color code based on emoji/event type
             if text.startswith("🖱️"):
-                option.palette.setColor(QPalette.ColorRole.Text, self.mouse_color)
+                option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.mouse_color)
             elif text.startswith("⌨️"):
-                option.palette.setColor(QPalette.ColorRole.Text, self.keyboard_color)
+                option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.keyboard_color)
             elif text.startswith("📝") or text.startswith("✅") or text.startswith("⏳"):
-                option.palette.setColor(QPalette.ColorRole.Text, self.system_color)
+                option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.system_color)
             elif text.startswith("❌") or text.startswith("❓"):
-                option.palette.setColor(QPalette.ColorRole.Text, self.unknown_color)
+                option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.unknown_color)
 
 
 class MacroGUI(QMainWindow):
