@@ -146,6 +146,20 @@ class EventLogModel(QAbstractListModel):
         self.endInsertRows()
         return True
 
+    def append_system_message(self, message: str) -> None:
+        """Append a pre-formatted system message to the model."""
+        row = len(self._events)
+        self.beginInsertRows(QModelIndex(), row, row)
+        self._events.append(
+            {
+                "type": "__system_message__",
+                "message": message,
+                "time": 0.0,
+            }
+        )
+        self._formatted_cache.append(message)
+        self.endInsertRows()
+
     def clear_events(self):
         """Clear all events from the model."""
         if not self._events:
@@ -757,18 +771,7 @@ class MacroGUI(QMainWindow):
         Args:
             message: String message to append (can be a status/system message)
         """
-        # Create a fake event dict for system messages
-        fake_event = {
-            "type": "__system_message__",
-            "message": message,
-            "time": 0.0
-        }
-        # Add as formatted string directly
-        row = self.log_model.rowCount()
-        self.log_model.beginInsertRows(QModelIndex(), row, row)
-        self.log_model._events.append(fake_event)
-        self.log_model._formatted_cache.append(message)
-        self.log_model.endInsertRows()
+        self.log_model.append_system_message(message)
         # Auto-scroll to bottom
         self.log_console.scrollToBottom()
 
