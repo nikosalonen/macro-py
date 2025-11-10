@@ -9,6 +9,7 @@ import subprocess
 import logging
 import multiprocessing as mp
 import threading
+import json
 from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -21,14 +22,15 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QFileDialog,
     QStatusBar,
-    QTextEdit,
+    QListView,
     QSplitter,
     QCheckBox,
     QToolBar,
     QMessageBox,
 )
-from PyQt6.QtCore import Qt, QTimer, QSize
-from PyQt6.QtGui import QKeySequence, QAction
+from PyQt6.QtCore import Qt, QTimer, QSize, QAbstractListModel, QModelIndex
+from PyQt6.QtGui import QKeySequence, QAction, QColor, QPalette
+from PyQt6.QtWidgets import QStyledItemDelegate
 from .MacroApp import MacroApp
 from pynput import keyboard
 
@@ -93,6 +95,167 @@ def _f5_hotkey_subprocess(stop_signal_queue, stop_event):
                 logger.exception("F5 hotkey subprocess: Error stopping listener")
 
 
+class EventLogModel(QAbstractListModel):
+    """Qt Model for displaying macro events efficiently.
+
+    This model implements the Qt Model-View architecture for event display,
+    providing better performance for large event lists compared to appending
+    to a QTextEdit widget.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._events = []
+        self._formatted_cache = []
+        self.last_mouse_pos = None
+        self.mouse_move_count = 0
+
+    def rowCount(self, parent=QModelIndex()):
+        """Return the number of events in the model."""
+        return len(self._events)
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        """Return formatted event data for the given index."""
+        if not index.isValid() or index.row() >= len(self._events):
+            return None
+
+        if role == Qt.ItemDataRole.DisplayRole:
+            # Return cached formatted string
+            return self._formatted_cache[index.row()]
+
+        return None
+
+    def add_event(self, event):
+        """Add a new event to the model.
+
+        Args:
+            event: Event dictionary from the recorder
+
+        Returns:
+            bool: True if event was added, False if filtered out
+        """
+        formatted = self._format_event(event)
+        if formatted is None:
+            # Event was filtered (e.g., insignificant mouse move)
+            return False
+
+        # Notify views that we're adding a row
+        row = len(self._events)
+        self.beginInsertRows(QModelIndex(), row, row)
+        self._events.append(event)
+        self._formatted_cache.append(formatted)
+        self.endInsertRows()
+        return True
+
+    def append_system_message(self, message: str) -> None:
+        """Append a pre-formatted system message to the model."""
+        row = len(self._events)
+        self.beginInsertRows(QModelIndex(), row, row)
+        self._events.append(
+            {
+                "type": "__system_message__",
+                "message": message,
+                "time": 0.0,
+            }
+        )
+        self._formatted_cache.append(message)
+        self.endInsertRows()
+
+    def clear_events(self):
+        """Clear all events from the model."""
+        if not self._events:
+            return
+
+        self.beginResetModel()
+        self._events.clear()
+        self._formatted_cache.clear()
+        self.last_mouse_pos = None
+        self.mouse_move_count = 0
+        self.endResetModel()
+
+    def _format_event(self, event):
+        """Format a single event for display in the log.
+
+        Args:
+            event: Event dictionary from the recorder
+
+        Returns:
+            str: Formatted event string, or None to filter out this event
+        """
+        event_type = event.get("type", "unknown")
+        timestamp = f"{event.get('time', 0):.3f}s"
+
+        if event_type == "mouse_move":
+            x, y = event.get("x", 0), event.get("y", 0)
+            # Reduce spam by only showing significant mouse movements
+            if self.last_mouse_pos is None or (
+                abs(x - self.last_mouse_pos[0]) > 10
+                or abs(y - self.last_mouse_pos[1]) > 10
+            ):
+                self.last_mouse_pos = (x, y)
+                self.mouse_move_count += 1
+                return (
+                    f"🖱️  [{timestamp}] Mouse Move #{self.mouse_move_count} → ({x}, {y})"
+                )
+            return None  # Skip this event
+
+        elif event_type == "mouse_click":
+            button = event.get("button", "unknown")
+            action = "Press" if event.get("pressed") else "Release"
+            x, y = event.get("x", 0), event.get("y", 0)
+            return f"🖱️  [{timestamp}] Mouse {action} → {button} at ({x}, {y})"
+
+        elif event_type == "mouse_scroll":
+            dx, dy = event.get("dx", 0), event.get("dy", 0)
+            x, y = event.get("x", 0), event.get("y", 0)
+            return f"🖱️  [{timestamp}] Mouse Scroll → ({dx}, {dy}) at ({x}, {y})"
+
+        elif event_type == "key_press":
+            key = event.get("key", "unknown")
+            return f"⌨️  [{timestamp}] Key Press → {key}"
+
+        elif event_type == "key_release":
+            key = event.get("key", "unknown")
+            return f"⌨️  [{timestamp}] Key Release → {key}"
+
+        else:
+            return f"❓ [{timestamp}] Unknown Event → {event_type}"
+
+
+class EventLogDelegate(QStyledItemDelegate):
+    """Custom delegate for rendering event log items with enhanced styling."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # Define colors for different event types
+        self.mouse_color = QColor("#4A9EFF")  # Blue for mouse events
+        self.keyboard_color = QColor("#50C878")  # Green for keyboard events
+        self.system_color = QColor("#FFB84D")  # Orange for system messages
+        self.unknown_color = QColor("#FF6B6B")  # Red for unknown events
+
+    def initStyleOption(self, option, index):
+        """Initialize style options with custom colors based on event type."""
+        super().initStyleOption(option, index)
+
+        # Get the display text to determine event type
+        text = index.data(Qt.ItemDataRole.DisplayRole)
+        if text:
+            # Color code based on emoji/event type
+            if text.startswith("🖱️"):
+                option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.mouse_color)
+            elif text.startswith("⌨️"):
+                option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.keyboard_color)
+            elif (
+                text.startswith("📝")
+                or text.startswith("✅")
+                or text.startswith("⏳")
+                or text.startswith("💡")
+            ):
+                option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.system_color)
+            elif text.startswith("❌") or text.startswith("❓"):
+                option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.unknown_color)
+
+
 class MacroGUI(QMainWindow):
     """Main window for recording and playback controls with logging."""
     def __init__(self):
@@ -124,21 +287,34 @@ class MacroGUI(QMainWindow):
         self.setup_ui(controls_layout)
         splitter.addWidget(controls_widget)
 
-        # Log console inside a visually separated section
-        self.log_console = QTextEdit()
-        self.log_console.setReadOnly(True)
+        # Log console using Model-View architecture
+        self.log_model = EventLogModel(self)
+        self.log_console = QListView()
+        self.log_console.setModel(self.log_model)
+
+        # Set custom delegate for colored event rendering
+        self.log_delegate = EventLogDelegate(self.log_console)
+        self.log_console.setItemDelegate(self.log_delegate)
+
         self.log_console.setMaximumHeight(200)
         self.log_console.setStyleSheet(
             """
-            QTextEdit {
+            QListView {
                 background-color: #1e1e1e;
                 color: #ffffff;
                 font-family: 'Monaco', 'Consolas', monospace;
                 font-size: 11px;
                 border: 1px solid #444;
             }
+            QListView::item:alternate {
+                background-color: #252525;
+            }
         """
         )
+        # Enable alternating row colors for better readability
+        self.log_console.setAlternatingRowColors(True)
+        # Disable editing
+        self.log_console.setEditTriggers(QListView.EditTrigger.NoEditTriggers)
         self.log_section = QGroupBox("Log")
         self.log_section.setStyleSheet(
             """
@@ -180,8 +356,8 @@ class MacroGUI(QMainWindow):
         self.log_timer = QTimer()
         self.log_timer.timeout.connect(self.update_log)
         self.last_event_count = 0
-        self.last_mouse_pos = None
-        self.mouse_move_count = 0
+        # self.last_mouse_pos = None
+        # self.mouse_move_count = 0
         self.was_hidden_for_recording = False
         self._restore_on_top_after_record = False
         self._restore_on_top_after_play = False
@@ -363,9 +539,9 @@ class MacroGUI(QMainWindow):
 
                 # Show log console first
                 self.log_section.show()
-                self.log_console.clear()
-                self.log_console.append("📝 Initializing Recording Session...")
-                self.log_console.append("=" * 50)
+                self._log_clear()
+                self._log_append("📝 Initializing Recording Session...")
+                self._log_append("=" * 50)
 
                 # Update button text immediately
                 self.toggle_log_action.blockSignals(True)
@@ -375,14 +551,14 @@ class MacroGUI(QMainWindow):
 
                 # Initialize counters first
                 self.last_event_count = 0
-                self.last_mouse_pos = None
-                self.mouse_move_count = 0
+                # self.last_mouse_pos = None
+                # self.mouse_move_count = 0
 
                 # Defer recording startup to avoid PyQt6 event loop conflicts
                 QTimer.singleShot(100, self._start_recording_delayed)
 
                 self.status_bar.showMessage("🔄 Initializing listeners...")
-                self.log_console.append("⏳ Starting listeners in background...")
+                self._log_append("⏳ Starting listeners in background...")
 
             except Exception as e:
                 # Recording failed - show error and clean up
@@ -395,16 +571,16 @@ class MacroGUI(QMainWindow):
                     self.was_hidden_for_recording = False
                     self.show()
 
-                self.log_console.append(f"❌ Recording Failed: {str(e)}")
-                self.log_console.append("")
-                self.log_console.append("💡 Troubleshooting Tips:")
-                self.log_console.append(
+                self._log_append(f"❌ Recording Failed: {str(e)}")
+                self._log_append("")
+                self._log_append("💡 Troubleshooting Tips:")
+                self._log_append(
                     "• Go to System Preferences → Security & Privacy → Privacy"
                 )
-                self.log_console.append(
+                self._log_append(
                     "• Click 'Accessibility' and add your Terminal or Python"
                 )
-                self.log_console.append(
+                self._log_append(
                     "• Restart the application after granting permissions"
                 )
 
@@ -430,8 +606,8 @@ class MacroGUI(QMainWindow):
             # Stop log timer and add summary
             if self.log_timer.isActive():
                 self.log_timer.stop()
-            self.log_console.append("=" * 50)
-            self.log_console.append(
+            self._log_append("=" * 50)
+            self._log_append(
                 f"✅ Recording Complete: {len(self.app.macro_data)} events captured"
             )
 
@@ -536,8 +712,8 @@ class MacroGUI(QMainWindow):
         if filename:
             if not filename.endswith(".json"):
                 filename += ".json"
-            self.app.recorder.events = self.app.macro_data
-            self.app.recorder.save_macro(filename)
+            with open(filename, "w") as f:
+                json.dump(list(self.app.macro_data or []), f, indent=2)
             self.status_bar.showMessage(f"Saved to {filename}")
 
     def load_macro(self):
@@ -547,7 +723,8 @@ class MacroGUI(QMainWindow):
         )
         if filename:
             self.app.recorder.load_macro(filename)
-            self.app.macro_data = self.app.recorder.events.copy()
+            with self.app.recorder._events_lock:
+                self.app.macro_data = self.app.recorder.events.copy()
             self.status_bar.showMessage(f"Loaded {len(self.app.macro_data)} events")
 
     def update_log(self):
@@ -555,10 +732,10 @@ class MacroGUI(QMainWindow):
         if not self.app.recorder.recording:
             return
 
-        current_count = len(self.app.recorder.events)
-        if current_count > self.last_event_count:
+        new_events, current_count = self.app.recorder.get_events_since(self.last_event_count)
+        if new_events:
             # Add new events to log
-            new_events = self.app.recorder.events[self.last_event_count :]
+            any_added = False
             for event in new_events:
                 # Handle control stop request coming from subprocess (F2)
                 if event.get("type") == "__stop_request__":
@@ -566,56 +743,15 @@ class MacroGUI(QMainWindow):
                     self.stop_recording_gui()
                     # Skip logging this control event
                     continue
-                formatted_event = self.format_event(event)
-                if formatted_event:  # Only append if not None (filtered mouse moves)
-                    self.log_console.append(formatted_event)
+                # Add event to model (handles filtering internally)
+                added = self.log_model.add_event(event)
+                if added:
+                    any_added = True
+            if any_added:
+                # Auto-scroll to bottom once after processing batch
+                self.log_console.scrollToBottom()
 
             self.last_event_count = current_count
-
-            # Auto-scroll to bottom
-            scrollbar = self.log_console.verticalScrollBar()
-            scrollbar.setValue(scrollbar.maximum())
-
-    def format_event(self, event):
-        """Format a single event for display in the log"""
-        event_type = event.get("type", "unknown")
-        timestamp = f"{event.get('time', 0):.3f}s"
-
-        if event_type == "mouse_move":
-            x, y = event.get("x", 0), event.get("y", 0)
-            # Reduce spam by only showing significant mouse movements
-            if self.last_mouse_pos is None or (
-                abs(x - self.last_mouse_pos[0]) > 10
-                or abs(y - self.last_mouse_pos[1]) > 10
-            ):
-                self.last_mouse_pos = (x, y)
-                self.mouse_move_count += 1
-                return (
-                    f"🖱️  [{timestamp}] Mouse Move #{self.mouse_move_count} → ({x}, {y})"
-                )
-            return None  # Skip this event
-
-        elif event_type == "mouse_click":
-            button = event.get("button", "unknown")
-            action = "Press" if event.get("pressed") else "Release"
-            x, y = event.get("x", 0), event.get("y", 0)
-            return f"🖱️  [{timestamp}] Mouse {action} → {button} at ({x}, {y})"
-
-        elif event_type == "mouse_scroll":
-            dx, dy = event.get("dx", 0), event.get("dy", 0)
-            x, y = event.get("x", 0), event.get("y", 0)
-            return f"🖱️  [{timestamp}] Mouse Scroll → ({dx}, {dy}) at ({x}, {y})"
-
-        elif event_type == "key_press":
-            key = event.get("key", "unknown")
-            return f"⌨️  [{timestamp}] Key Press → {key}"
-
-        elif event_type == "key_release":
-            key = event.get("key", "unknown")
-            return f"⌨️  [{timestamp}] Key Release → {key}"
-
-        else:
-            return f"❓ [{timestamp}] Unknown Event → {event_type}"
 
     def toggle_log_console(self):
         """Toggle the visibility of the log console"""
@@ -634,9 +770,23 @@ class MacroGUI(QMainWindow):
 
     def clear_log(self):
         """Clear the log console"""
-        self.log_console.clear()
+        self.log_model.clear_events()
         if not self.app.recorder.recording:
-            self.log_console.append("📝 Log Cleared - Ready for recording")
+            self._log_append("📝 Log Cleared - Ready for recording")
+
+    def _log_append(self, message):
+        """Append a message to the log console.
+
+        Args:
+            message: String message to append (can be a status/system message)
+        """
+        self.log_model.append_system_message(message)
+        # Auto-scroll to bottom
+        self.log_console.scrollToBottom()
+
+    def _log_clear(self):
+        """Clear the log console completely."""
+        self.log_model.clear_events()
 
     def capture_prev_front_app(self):
         """Capture the currently frontmost app (macOS) to reactivate later when recording starts."""
@@ -914,8 +1064,8 @@ class MacroGUI(QMainWindow):
 
             # Recording started successfully
             self.status_bar.showMessage("🔴 Recording started successfully!")
-            self.log_console.append("✅ Recording Session Started Successfully")
-            self.log_console.append("Monitoring mouse and keyboard events...")
+            self._log_append("✅ Recording Session Started Successfully")
+            self._log_append("Monitoring mouse and keyboard events...")
 
             # Start the log update timer
             if not self.log_timer.isActive():
@@ -927,16 +1077,16 @@ class MacroGUI(QMainWindow):
             print(error_msg)
             self.status_bar.showMessage("❌ Recording failed - Check permissions")
 
-            self.log_console.append(f"❌ Recording Failed: {str(e)}")
-            self.log_console.append("")
-            self.log_console.append("💡 Troubleshooting Tips:")
-            self.log_console.append(
+            self._log_append(f"❌ Recording Failed: {str(e)}")
+            self._log_append("")
+            self._log_append("💡 Troubleshooting Tips:")
+            self._log_append(
                 "• Go to System Preferences → Security & Privacy → Privacy"
             )
-            self.log_console.append(
+            self._log_append(
                 "• Click 'Accessibility' and add your Terminal or Python"
             )
-            self.log_console.append(
+            self._log_append(
                 "• Restart the application after granting permissions"
             )
 

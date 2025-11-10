@@ -177,6 +177,7 @@ def _macro_listener_subprocess(event_queue: mp.Queue, stop_event: mp.Event) -> N
 class MacroRecorder:
     def __init__(self):
         self.events = []
+        self._events_lock = threading.Lock()
         self.recording = False
         self.start_time = None
         self.mouse_listener = None
@@ -197,7 +198,8 @@ class MacroRecorder:
 
         # Reset state
         print("🔍 [DEBUG] Resetting recorder state...")
-        self.events = []
+        with self._events_lock:
+            self.events = []
         self.recording = (
             False  # Will be set to True only if listeners start successfully
         )
@@ -440,19 +442,21 @@ class MacroRecorder:
             if msg_type == "__stop_request__":
                 # Append control event so GUI can react during its timer cycle
                 try:
-                    self.events.append(
-                        {
-                            "type": "__stop_request__",
-                            "time": time.time() - (self.start_time or time.time()),
-                        }
-                    )
+                    with self._events_lock:
+                        self.events.append(
+                            {
+                                "type": "__stop_request__",
+                                "time": time.time() - (self.start_time or time.time()),
+                            }
+                        )
                 except Exception:
                     logging.exception("Error appending control stop event")
                 continue
 
             # Regular event
             try:
-                self.events.append(item)
+                with self._events_lock:
+                    self.events.append(item)
             except Exception as e:
                 print(f"⚠️ Error appending event: {e}")
 
@@ -486,46 +490,49 @@ class MacroRecorder:
     def on_move(self, x, y):
         try:
             if self.recording:
-                self.events.append(
-                    {
-                        "type": "mouse_move",
-                        "x": x,
-                        "y": y,
-                        "time": time.time() - self.start_time,
-                    }
-                )
+                with self._events_lock:
+                    self.events.append(
+                        {
+                            "type": "mouse_move",
+                            "x": x,
+                            "y": y,
+                            "time": time.time() - self.start_time,
+                        }
+                    )
         except Exception as e:
             print(f"⚠️ on_move error: {e}")
 
     def on_click(self, x, y, button, pressed):
         try:
             if self.recording:
-                self.events.append(
-                    {
-                        "type": "mouse_click",
-                        "x": x,
-                        "y": y,
-                        "button": str(button),
-                        "pressed": pressed,
-                        "time": time.time() - self.start_time,
-                    }
-                )
+                with self._events_lock:
+                    self.events.append(
+                        {
+                            "type": "mouse_click",
+                            "x": x,
+                            "y": y,
+                            "button": str(button),
+                            "pressed": pressed,
+                            "time": time.time() - self.start_time,
+                        }
+                    )
         except Exception as e:
             print(f"⚠️ on_click error: {e}")
 
     def on_scroll(self, x, y, dx, dy):
         try:
             if self.recording:
-                self.events.append(
-                    {
-                        "type": "mouse_scroll",
-                        "x": x,
-                        "y": y,
-                        "dx": dx,
-                        "dy": dy,
-                        "time": time.time() - self.start_time,
-                    }
-                )
+                with self._events_lock:
+                    self.events.append(
+                        {
+                            "type": "mouse_scroll",
+                            "x": x,
+                            "y": y,
+                            "dx": dx,
+                            "dy": dy,
+                            "time": time.time() - self.start_time,
+                        }
+                    )
         except Exception as e:
             print(f"⚠️ on_scroll error: {e}")
 
@@ -536,7 +543,8 @@ class MacroRecorder:
                 if key == keyboard.Key.f2:
                     # Compute timestamp deterministically (0.0 if start_time is None)
                     timestamp = 0.0 if self.start_time is None else time.time() - self.start_time
-                    self.events.append({"type": "__stop_request__", "time": timestamp})
+                    with self._events_lock:
+                        self.events.append({"type": "__stop_request__", "time": timestamp})
                     return
 
                 try:
@@ -544,13 +552,14 @@ class MacroRecorder:
                 except AttributeError:
                     key_name = str(key)
 
-                self.events.append(
-                    {
-                        "type": "key_press",
-                        "key": key_name,
-                        "time": time.time() - self.start_time,
-                    }
-                )
+                with self._events_lock:
+                    self.events.append(
+                        {
+                            "type": "key_press",
+                            "key": key_name,
+                            "time": time.time() - self.start_time,
+                        }
+                    )
         except Exception:
             logging.exception("on_key_press error")
 
@@ -562,20 +571,44 @@ class MacroRecorder:
                 except AttributeError:
                     key_name = str(key)
 
-                self.events.append(
-                    {
-                        "type": "key_release",
-                        "key": key_name,
-                        "time": time.time() - self.start_time,
-                    }
-                )
+                with self._events_lock:
+                    self.events.append(
+                        {
+                            "type": "key_release",
+                            "key": key_name,
+                            "time": time.time() - self.start_time,
+                        }
+                    )
         except Exception as e:
             print(f"⚠️ on_key_release error: {e}")
 
     def save_macro(self, filename):
+        with self._events_lock:
+            snapshot = list(self.events)
         with open(filename, "w") as f:
-            json.dump(self.events, f, indent=2)
+            json.dump(snapshot, f, indent=2)
 
     def load_macro(self, filename):
         with open(filename, "r") as f:
-            self.events = json.load(f)
+            loaded = json.load(f)
+        with self._events_lock:
+            self.events = loaded
+
+    def get_events_since(self, start_index: int):
+        """Return a thread-safe slice of events since start_index and current count.
+
+        Args:
+            start_index: Starting index to slice from.
+
+        Returns:
+            tuple[list[dict], int]: (new_events, current_count)
+        """
+        with self._events_lock:
+            current_count = len(self.events)
+            if start_index < 0:
+                start_index = 0
+            if start_index > current_count:
+                start_index = current_count
+            new_events = self.events[start_index:current_count]
+        # Return a shallow copy of the slice to avoid caller mutating our list
+        return list(new_events), current_count
