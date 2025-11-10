@@ -109,7 +109,7 @@ class EventLogModel(QAbstractListModel):
         self.last_mouse_pos = None
         self.mouse_move_count = 0
 
-    def rowCount(self, parent=None):
+    def rowCount(self, parent=QModelIndex()):
         """Return the number of events in the model."""
         return len(self._events)
 
@@ -725,10 +725,10 @@ class MacroGUI(QMainWindow):
         if not self.app.recorder.recording:
             return
 
-        current_count = len(self.app.recorder.events)
-        if current_count > self.last_event_count:
+        new_events, current_count = self.app.recorder.get_events_since(self.last_event_count)
+        if new_events:
             # Add new events to log
-            new_events = self.app.recorder.events[self.last_event_count :]
+            any_added = False
             for event in new_events:
                 # Handle control stop request coming from subprocess (F2)
                 if event.get("type") == "__stop_request__":
@@ -739,8 +739,10 @@ class MacroGUI(QMainWindow):
                 # Add event to model (handles filtering internally)
                 added = self.log_model.add_event(event)
                 if added:
-                    # Auto-scroll to bottom after adding
-                    self.log_console.scrollToBottom()
+                    any_added = True
+            if any_added:
+                # Auto-scroll to bottom once after processing batch
+                self.log_console.scrollToBottom()
 
             self.last_event_count = current_count
 
