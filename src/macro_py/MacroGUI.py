@@ -9,6 +9,7 @@ import subprocess
 import logging
 import multiprocessing as mp
 import threading
+import json
 from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -350,8 +351,8 @@ class MacroGUI(QMainWindow):
         self.log_timer = QTimer()
         self.log_timer.timeout.connect(self.update_log)
         self.last_event_count = 0
-        self.last_mouse_pos = None
-        self.mouse_move_count = 0
+        # self.last_mouse_pos = None
+        # self.mouse_move_count = 0
         self.was_hidden_for_recording = False
         self._restore_on_top_after_record = False
         self._restore_on_top_after_play = False
@@ -545,8 +546,8 @@ class MacroGUI(QMainWindow):
 
                 # Initialize counters first
                 self.last_event_count = 0
-                self.last_mouse_pos = None
-                self.mouse_move_count = 0
+                # self.last_mouse_pos = None
+                # self.mouse_move_count = 0
 
                 # Defer recording startup to avoid PyQt6 event loop conflicts
                 QTimer.singleShot(100, self._start_recording_delayed)
@@ -706,8 +707,8 @@ class MacroGUI(QMainWindow):
         if filename:
             if not filename.endswith(".json"):
                 filename += ".json"
-            self.app.recorder.events = self.app.macro_data
-            self.app.recorder.save_macro(filename)
+            with open(filename, "w") as f:
+                json.dump(list(self.app.macro_data or []), f, indent=2)
             self.status_bar.showMessage(f"Saved to {filename}")
 
     def load_macro(self):
@@ -717,7 +718,8 @@ class MacroGUI(QMainWindow):
         )
         if filename:
             self.app.recorder.load_macro(filename)
-            self.app.macro_data = self.app.recorder.events.copy()
+            with self.app.recorder._events_lock:
+                self.app.macro_data = self.app.recorder.events.copy()
             self.status_bar.showMessage(f"Loaded {len(self.app.macro_data)} events")
 
     def update_log(self):
