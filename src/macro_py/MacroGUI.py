@@ -245,7 +245,12 @@ class EventLogDelegate(QStyledItemDelegate):
                 option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.mouse_color)
             elif text.startswith("⌨️"):
                 option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.keyboard_color)
-            elif text.startswith("📝") or text.startswith("✅") or text.startswith("⏳"):
+            elif (
+                text.startswith("📝")
+                or text.startswith("✅")
+                or text.startswith("⏳")
+                or text.startswith("💡")
+            ):
                 option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.system_color)
             elif text.startswith("❌") or text.startswith("❓"):
                 option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.unknown_color)
