@@ -860,9 +860,10 @@ class MacroGUI(QMainWindow):
 
     def on_always_on_top_toggled(self, checked):
         """Apply the always-on-top flag and re-show the window to take effect."""
+        was_visible = self.isVisible()
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, checked)
-        # Re-show to apply flag change on macOS/Qt
-        if self.isVisible():
+        # setWindowFlag hides the window, so re-show it
+        if was_visible:
             self.show()
 
     def _toggle_log_from_action(self, checked):
