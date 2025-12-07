@@ -262,7 +262,7 @@ class MacroGUI(QMainWindow):
         super().__init__()
         self.app = MacroApp()
         self.setWindowTitle("Macro Recorder")
-        self.setGeometry(100, 100, 480, 320)
+        self.setGeometry(100, 100, 620, 320)
         # Default to always-on-top
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
 
@@ -381,8 +381,19 @@ class MacroGUI(QMainWindow):
         toolbar.setMovable(False)
         toolbar.setIconSize(QSize(18, 18))
         self.addToolBar(toolbar)
-        # Visual separator for topbar
-        toolbar.setStyleSheet("QToolBar { border-bottom: 1px solid #c8c8c8; }")
+        # Visual separator for topbar + visible extension button
+        toolbar.setStyleSheet("""
+            QToolBar { border-bottom: 1px solid #c8c8c8; }
+            QToolButton#qt_toolbar_ext_button {
+                background: #666;
+                border-radius: 2px;
+                min-width: 16px;
+                padding: 2px;
+            }
+            QToolButton#qt_toolbar_ext_button:hover {
+                background: #888;
+            }
+        """)
 
         # Actions
         self.action_start_rec = QAction("Start", self)
