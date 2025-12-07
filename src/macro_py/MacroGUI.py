@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
 )
 from PyQt6.QtCore import Qt, QTimer, QSize, QAbstractListModel, QModelIndex
-from PyQt6.QtGui import QKeySequence, QAction, QColor, QPalette
+from PyQt6.QtGui import QKeySequence, QAction, QColor, QPalette, QIntValidator
 from PyQt6.QtWidgets import QStyledItemDelegate
 from .MacroApp import MacroApp
 from pynput import keyboard
@@ -499,6 +499,7 @@ class MacroGUI(QMainWindow):
         self.max_idle_entry.setFixedWidth(60)
         self.max_idle_entry.setPlaceholderText("none")
         self.max_idle_entry.setToolTip("Max delay between events during playback (empty = no limit)")
+        self.max_idle_entry.setValidator(QIntValidator(0, 999999, self))
         options_layout.addWidget(self.max_idle_entry)
 
         clear_log_btn = QPushButton("Clear Log")
