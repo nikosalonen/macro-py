@@ -498,8 +498,8 @@ class MacroGUI(QMainWindow):
         self.max_idle_entry = QLineEdit("")
         self.max_idle_entry.setFixedWidth(60)
         self.max_idle_entry.setPlaceholderText("none")
-        self.max_idle_entry.setToolTip("Max delay between events during playback (empty = no limit)")
-        self.max_idle_entry.setValidator(QIntValidator(0, 999999, self))
+        self.max_idle_entry.setToolTip("Max delay between events during playback (empty = no limit, min 1)")
+        self.max_idle_entry.setValidator(QIntValidator(1, 999999, self))
         options_layout.addWidget(self.max_idle_entry)
 
         clear_log_btn = QPushButton("Clear Log")
