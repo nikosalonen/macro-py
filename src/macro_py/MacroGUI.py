@@ -1075,7 +1075,9 @@ class MacroGUI(QMainWindow):
         if max_idle_text:
             try:
                 # Convert ms to seconds for the player
-                self.app.max_idle_time = int(max_idle_text) / 1000.0
+                ms_value = int(max_idle_text)
+                # Treat negative or zero as no limit
+                self.app.max_idle_time = ms_value / 1000.0 if ms_value > 0 else None
             except ValueError:
                 self.app.max_idle_time = None
         else:
