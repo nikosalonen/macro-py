@@ -482,6 +482,14 @@ class MacroGUI(QMainWindow):
         self.activate_on_play_checkbox.setChecked(True)
         options_layout.addWidget(self.activate_on_play_checkbox)
 
+        # Max idle time setting (caps delays during playback)
+        options_layout.addWidget(QLabel("Max idle (ms):"))
+        self.max_idle_entry = QLineEdit("")
+        self.max_idle_entry.setFixedWidth(60)
+        self.max_idle_entry.setPlaceholderText("none")
+        self.max_idle_entry.setToolTip("Max delay between events during playback (empty = no limit)")
+        options_layout.addWidget(self.max_idle_entry)
+
         clear_log_btn = QPushButton("Clear Log")
         clear_log_btn.clicked.connect(self.clear_log)
         options_layout.addWidget(clear_log_btn)
@@ -1049,6 +1057,17 @@ class MacroGUI(QMainWindow):
 
     def _prepare_for_playback(self):
         """Lower window, manage top-most state, and enable F5 stop hotkey."""
+        # Parse max idle time from GUI and pass to app
+        max_idle_text = self.max_idle_entry.text().strip()
+        if max_idle_text:
+            try:
+                # Convert ms to seconds for the player
+                self.app.max_idle_time = int(max_idle_text) / 1000.0
+            except ValueError:
+                self.app.max_idle_time = None
+        else:
+            self.app.max_idle_time = None
+
         # Send window to background and manage always-on-top, then enable F5 stop
         if self.isVisible():
             if self.always_on_top_action.isChecked():
