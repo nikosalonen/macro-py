@@ -28,6 +28,9 @@ class MacroPlayer:
         - speed: playback speed multiplier (e.g., 2.0 = double speed)
         - max_idle_time: max seconds to wait between events (None = no limit)
         """
+        # Normalize to list to support generators and allow multiple iterations
+        events = list(events)
+
         self.playing = True
         self.stop_flag = False
         self.current_loop = 0
