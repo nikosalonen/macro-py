@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
 )
 from PyQt6.QtCore import Qt, QTimer, QSize, QAbstractListModel, QModelIndex
-from PyQt6.QtGui import QKeySequence, QAction, QColor, QPalette
+from PyQt6.QtGui import QKeySequence, QAction, QColor, QPalette, QIntValidator
 from PyQt6.QtWidgets import QStyledItemDelegate
 from .MacroApp import MacroApp
 from pynput import keyboard
@@ -262,7 +262,7 @@ class MacroGUI(QMainWindow):
         super().__init__()
         self.app = MacroApp()
         self.setWindowTitle("Macro Recorder")
-        self.setGeometry(100, 100, 480, 320)
+        self.setGeometry(100, 100, 620, 320)
         # Default to always-on-top
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
 
@@ -381,8 +381,19 @@ class MacroGUI(QMainWindow):
         toolbar.setMovable(False)
         toolbar.setIconSize(QSize(18, 18))
         self.addToolBar(toolbar)
-        # Visual separator for topbar
-        toolbar.setStyleSheet("QToolBar { border-bottom: 1px solid #c8c8c8; }")
+        # Visual separator for topbar + visible extension button
+        toolbar.setStyleSheet("""
+            QToolBar { border-bottom: 1px solid #c8c8c8; }
+            QToolButton#qt_toolbar_ext_button {
+                background: #666;
+                border-radius: 2px;
+                min-width: 16px;
+                padding: 2px;
+            }
+            QToolButton#qt_toolbar_ext_button:hover {
+                background: #888;
+            }
+        """)
 
         # Actions
         self.action_start_rec = QAction("Start", self)
@@ -481,6 +492,15 @@ class MacroGUI(QMainWindow):
         self.activate_on_play_checkbox = QCheckBox("Activate app on Play")
         self.activate_on_play_checkbox.setChecked(True)
         options_layout.addWidget(self.activate_on_play_checkbox)
+
+        # Max idle time setting (caps delays during playback)
+        options_layout.addWidget(QLabel("Max idle (ms):"))
+        self.max_idle_entry = QLineEdit("")
+        self.max_idle_entry.setFixedWidth(60)
+        self.max_idle_entry.setPlaceholderText("none")
+        self.max_idle_entry.setToolTip("Max delay between events during playback (empty = no limit, min 1)")
+        self.max_idle_entry.setValidator(QIntValidator(1, 999999, self))
+        options_layout.addWidget(self.max_idle_entry)
 
         clear_log_btn = QPushButton("Clear Log")
         clear_log_btn.clicked.connect(self.clear_log)
@@ -841,9 +861,10 @@ class MacroGUI(QMainWindow):
 
     def on_always_on_top_toggled(self, checked):
         """Apply the always-on-top flag and re-show the window to take effect."""
+        was_visible = self.isVisible()
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, checked)
-        # Re-show to apply flag change on macOS/Qt
-        if self.isVisible():
+        # setWindowFlag hides the window, so re-show it
+        if was_visible:
             self.show()
 
     def _toggle_log_from_action(self, checked):
@@ -1049,6 +1070,19 @@ class MacroGUI(QMainWindow):
 
     def _prepare_for_playback(self):
         """Lower window, manage top-most state, and enable F5 stop hotkey."""
+        # Parse max idle time from GUI and pass to app
+        max_idle_text = self.max_idle_entry.text().strip()
+        if max_idle_text:
+            try:
+                # Convert ms to seconds for the player
+                ms_value = int(max_idle_text)
+                # Treat negative or zero as no limit
+                self.app.max_idle_time = ms_value / 1000.0 if ms_value > 0 else None
+            except ValueError:
+                self.app.max_idle_time = None
+        else:
+            self.app.max_idle_time = None
+
         # Send window to background and manage always-on-top, then enable F5 stop
         if self.isVisible():
             if self.always_on_top_action.isChecked():

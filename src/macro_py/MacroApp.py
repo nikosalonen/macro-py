@@ -18,6 +18,7 @@ class MacroApp:
         self.macro_data = []
         self.hotkey_listener = None
         self.running = True
+        self.max_idle_time = None  # Max seconds between events (None = no limit)
 
     def setup_hotkeys(self):
         """Configure global hotkeys for CLI mode (not used by GUI)."""
@@ -66,23 +67,49 @@ class MacroApp:
             self.macro_data = self.recorder.events.copy()
             print(f"Recorded {len(self.macro_data)} events")
 
+            # Diagnostic: show timing info to verify idle periods are captured
+            if self.macro_data:
+                # Filter out control events for timing analysis
+                timed_events = [
+                    e for e in self.macro_data
+                    if e.get("type") not in ("__stop_request__", "__system_message__")
+                    and isinstance(e.get("time"), (int, float))
+                ]
+                if timed_events:
+                    first_time = timed_events[0].get("time", 0)
+                    last_time = timed_events[-1].get("time", 0)
+                    duration = last_time - first_time
+                    print(f"⏱️ Timing: first={first_time:.2f}s, last={last_time:.2f}s, duration={duration:.2f}s")
+
     def play_once(self):
         """Play current macro once."""
         if self.macro_data and not self.player.playing:
             print("▶️ Playing macro once...")
-            Thread(target=self.player.play_macro, args=(self.macro_data, 1)).start()
+            Thread(
+                target=self.player.play_macro,
+                args=(self.macro_data, 1),
+                kwargs={"max_idle_time": self.max_idle_time},
+            ).start()
 
     def play_infinite(self):
         """Play current macro in an infinite loop (F5 to stop)."""
         if self.macro_data and not self.player.playing:
             print("🔁 Playing macro infinitely (F5 to stop)...")
-            Thread(target=self.player.play_macro, args=(self.macro_data, -1)).start()
+            Thread(
+                target=self.player.play_macro,
+                args=(self.macro_data, -1),
+                kwargs={"max_idle_time": self.max_idle_time},
+            ).start()
 
     def play_x_times(self, times):
         """Play current macro a fixed number of times."""
         if self.macro_data and not self.player.playing:
             print(f"🔄 Playing macro {times} times...")
-            Thread(target=self.player.play_macro, args=(self.macro_data, times)).start()
+            Thread(
+                target=self.player.play_macro,
+                args=(self.macro_data, times),
+                kwargs={"max_idle_time": self.max_idle_time},
+            ).start()
 
     def stop_playback(self):
         """Stop playback if currently playing."""

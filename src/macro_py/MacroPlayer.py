@@ -20,17 +20,30 @@ class MacroPlayer:
         self.current_loop = 0
         self.total_loops = 0  # -1 for infinite
 
-    def play_macro(self, events, loops=1, speed=1.0):
+    def play_macro(self, events, loops=1, speed=1.0, max_idle_time=None):
         """Play a list of recorded events.
 
         - events: iterable of event dicts with 'type' and 'time' fields
         - loops: number of repetitions (-1 for infinite)
         - speed: playback speed multiplier (e.g., 2.0 = double speed)
+        - max_idle_time: max seconds to wait between events (None = no limit)
         """
+        # Normalize to list to support generators and allow multiple iterations
+        events = list(events)
+
         self.playing = True
         self.stop_flag = False
         self.current_loop = 0
         self.total_loops = loops
+
+        # Find the recording end time from __stop_request__ event (if present)
+        recording_end_time = None
+        for event in events:
+            if event.get("type") == "__stop_request__":
+                t = event.get("time")
+                if isinstance(t, (int, float)):
+                    recording_end_time = t
+                break
 
         loop_count = 0
         while (loops == -1 or loop_count < loops) and not self.stop_flag:
@@ -55,12 +68,23 @@ class MacroPlayer:
 
                 # Wait for the appropriate time
                 wait_time = (event_time - last_time) / speed
+                # Cap wait time if max_idle_time is set
+                if max_idle_time is not None and wait_time > max_idle_time:
+                    wait_time = max_idle_time
                 if wait_time > 0:
                     time.sleep(wait_time)
                 last_time = event_time
 
                 # Execute the event
                 self.execute_event(event)
+
+            # Wait for final idle period before next loop (time from last event to F2 press)
+            if not self.stop_flag and recording_end_time is not None and last_time < recording_end_time:
+                final_wait = (recording_end_time - last_time) / speed
+                if max_idle_time is not None and final_wait > max_idle_time:
+                    final_wait = max_idle_time
+                if final_wait > 0:
+                    time.sleep(final_wait)
 
             loop_count += 1
 
