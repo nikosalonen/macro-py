@@ -2,6 +2,7 @@
 
 Compact window with toolbar, options, and a log section.
 """
+
 import sys
 import os
 import signal
@@ -59,10 +60,14 @@ def _f5_hotkey_subprocess(stop_signal_queue, stop_event):
                 try:
                     stop_signal_queue.put("STOP", timeout=0.1)
                 except queue.Full:
-                    logger.warning("F5 hotkey subprocess: Queue full, STOP signal dropped")
+                    logger.warning(
+                        "F5 hotkey subprocess: Queue full, STOP signal dropped"
+                    )
                 except (OSError, ValueError):
                     # Queue closed or invalid state
-                    logger.exception("F5 hotkey subprocess: Queue error when sending STOP")
+                    logger.exception(
+                        "F5 hotkey subprocess: Queue error when sending STOP"
+                    )
         except AttributeError:
             # Key doesn't have the expected attributes
             pass
@@ -88,11 +93,114 @@ def _f5_hotkey_subprocess(stop_signal_queue, stop_event):
             try:
                 listener.stop()
                 # Wait for listener thread to finish
-                if hasattr(listener, 'join'):
+                if hasattr(listener, "join"):
                     listener.join(timeout=1.0)
                 logger.debug("F5 hotkey subprocess: Listener stopped")
             except Exception:
                 logger.exception("F5 hotkey subprocess: Error stopping listener")
+
+
+def _pause_hotkey_subprocess(signal_queue, stop_event, synthetic_keys_proxy):
+    """
+    Subprocess function to listen for left Ctrl + left Shift pause hotkey.
+
+    When both keys are pressed, sends PAUSE signal. When either is released, sends RESUME.
+    Ignores key presses that match keys in synthetic_keys_proxy (macro-generated).
+
+    Args:
+        signal_queue: multiprocessing.Queue to send PAUSE/RESUME signals
+        stop_event: multiprocessing.Event to signal subprocess termination
+        synthetic_keys_proxy: Shared list of currently synthetic keys from MacroPlayer
+    """
+    import queue
+    from pynput import keyboard as kb
+
+    logger = logging.getLogger(__name__)
+
+    # Track pressed state of our trigger keys
+    ctrl_l_pressed = False
+    shift_l_pressed = False
+    is_paused = False
+
+    def send_signal(sig):
+        try:
+            signal_queue.put(sig, timeout=0.1)
+        except queue.Full:
+            logger.warning(
+                "Pause hotkey subprocess: Queue full, %s signal dropped", sig
+            )
+        except (OSError, ValueError):
+            logger.exception(
+                "Pause hotkey subprocess: Queue error when sending %s", sig
+            )
+
+    def on_key_press(key):
+        nonlocal ctrl_l_pressed, shift_l_pressed, is_paused
+
+        try:
+            # Check if this key is being pressed synthetically by the macro
+            key_str = str(key)
+            try:
+                if key_str in list(synthetic_keys_proxy):
+                    return  # Ignore macro-generated key press
+            except Exception:
+                pass  # If proxy access fails, continue processing
+
+            if key == kb.Key.ctrl_l:
+                ctrl_l_pressed = True
+            elif key == kb.Key.shift_l:
+                shift_l_pressed = True
+
+            # Check if both are now pressed
+            if ctrl_l_pressed and shift_l_pressed and not is_paused:
+                is_paused = True
+                send_signal("PAUSE")
+
+        except AttributeError:
+            pass
+        except Exception:
+            logger.exception("Pause hotkey subprocess: Error in on_key_press")
+
+    def on_key_release(key):
+        nonlocal ctrl_l_pressed, shift_l_pressed, is_paused
+
+        try:
+            if key == kb.Key.ctrl_l:
+                ctrl_l_pressed = False
+            elif key == kb.Key.shift_l:
+                shift_l_pressed = False
+
+            # Resume when either key is released
+            if is_paused and (not ctrl_l_pressed or not shift_l_pressed):
+                is_paused = False
+                send_signal("RESUME")
+
+        except AttributeError:
+            pass
+        except Exception:
+            logger.exception("Pause hotkey subprocess: Error in on_key_release")
+
+    listener = None
+    try:
+        listener = kb.Listener(on_press=on_key_press, on_release=on_key_release)
+        listener.start()
+        logger.debug("Pause hotkey subprocess: Listener started")
+
+        while not stop_event.is_set():
+            stop_event.wait(timeout=0.1)
+
+        logger.debug("Pause hotkey subprocess: Stop event received, shutting down")
+    except Exception:
+        logger.exception("Pause hotkey subprocess: Error in main loop")
+    finally:
+        if listener is not None:
+            try:
+                listener.stop()
+                if hasattr(listener, "join"):
+                    listener.join(timeout=1.0)
+                logger.debug("Pause hotkey subprocess: Listener stopped")
+            except Exception:
+                logger.exception("Pause hotkey subprocess: Error stopping listener")
 
 
 class EventLogModel(QAbstractListModel):
@@ -242,22 +350,33 @@ class EventLogDelegate(QStyledItemDelegate):
         if text:
             # Color code based on emoji/event type
             if text.startswith("🖱️"):
-                option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.mouse_color)
+                option.palette.setColor(
+                    QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.mouse_color
+                )
             elif text.startswith("⌨️"):
-                option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.keyboard_color)
+                option.palette.setColor(
+                    QPalette.ColorGroup.All,
+                    QPalette.ColorRole.Text,
+                    self.keyboard_color,
+                )
             elif (
                 text.startswith("📝")
                 or text.startswith("✅")
                 or text.startswith("⏳")
                 or text.startswith("💡")
             ):
-                option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.system_color)
+                option.palette.setColor(
+                    QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.system_color
+                )
             elif text.startswith("❌") or text.startswith("❓"):
-                option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.unknown_color)
+                option.palette.setColor(
+                    QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.unknown_color
+                )
 
 
 class MacroGUI(QMainWindow):
     """Main window for recording and playback controls with logging."""
+
     def __init__(self):
         super().__init__()
         self.app = MacroApp()
@@ -371,6 +490,16 @@ class MacroGUI(QMainWindow):
         self._f5_consumer_thread = None
         self._f5_consumer_stop_event = None
 
+        # Subprocess components for pause hotkey (left Ctrl + left Shift)
+        self._pause_subprocess = None
+        self._pause_stop_event = None
+        self._pause_signal_queue = None
+        self._pause_consumer_thread = None
+        self._pause_consumer_stop_event = None
+        self._synthetic_keys_manager = None
+        self._synthetic_keys_proxy = None
+        self._pause_hotkey_listener = None  # For Windows/Linux in-process listener
+
         # Timer for updating playback progress in the status bar
         self.play_progress_timer = QTimer()
         self.play_progress_timer.timeout.connect(self.update_play_progress)
@@ -382,7 +511,8 @@ class MacroGUI(QMainWindow):
         toolbar.setIconSize(QSize(18, 18))
         self.addToolBar(toolbar)
         # Visual separator for topbar + visible extension button
-        toolbar.setStyleSheet("""
+        toolbar.setStyleSheet(
+            """
             QToolBar { border-bottom: 1px solid #c8c8c8; }
             QToolButton#qt_toolbar_ext_button {
                 background: #666;
@@ -393,7 +523,8 @@ class MacroGUI(QMainWindow):
             QToolButton#qt_toolbar_ext_button:hover {
                 background: #888;
             }
-        """)
+        """
+        )
 
         # Actions
         self.action_start_rec = QAction("Start", self)
@@ -498,7 +629,9 @@ class MacroGUI(QMainWindow):
         self.max_idle_entry = QLineEdit("")
         self.max_idle_entry.setFixedWidth(60)
         self.max_idle_entry.setPlaceholderText("none")
-        self.max_idle_entry.setToolTip("Max delay between events during playback (empty = no limit, min 1)")
+        self.max_idle_entry.setToolTip(
+            "Max delay between events during playback (empty = no limit, min 1)"
+        )
         self.max_idle_entry.setValidator(QIntValidator(1, 999999, self))
         options_layout.addWidget(self.max_idle_entry)
 
@@ -531,8 +664,12 @@ class MacroGUI(QMainWindow):
         shortcuts_layout = QVBoxLayout(self.shortcuts_group)
         shortcuts_layout.setContentsMargins(8, 8, 8, 8)
         shortcuts_layout.setSpacing(4)
-        shortcuts_label = QLabel("F1 - Start • F2 - Stop Rec • F3 - Play Once • F5 - Stop")
-        shortcuts_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        shortcuts_label = QLabel(
+            "F1 - Start • F2 - Stop Rec • F3 - Play Once • F5 - Stop • Ctrl+Shift - Pause"
+        )
+        shortcuts_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
         shortcuts_label.setStyleSheet("color: #666;")
         shortcuts_layout.addWidget(shortcuts_label)
         layout.addWidget(self.shortcuts_group)
@@ -600,9 +737,7 @@ class MacroGUI(QMainWindow):
                 self._log_append(
                     "• Click 'Accessibility' and add your Terminal or Python"
                 )
-                self._log_append(
-                    "• Restart the application after granting permissions"
-                )
+                self._log_append("• Restart the application after granting permissions")
 
                 # Reset button state
                 self.toggle_log_action.blockSignals(True)
@@ -752,7 +887,9 @@ class MacroGUI(QMainWindow):
         if not self.app.recorder.recording:
             return
 
-        new_events, current_count = self.app.recorder.get_events_since(self.last_event_count)
+        new_events, current_count = self.app.recorder.get_events_since(
+            self.last_event_count
+        )
         if new_events:
             # Add new events to log
             any_added = False
@@ -897,7 +1034,8 @@ class MacroGUI(QMainWindow):
             "F1 - Start Recording (backgrounds window)\n"
             "F2 - Stop Recording (restores window)\n"
             "F3 - Play Once\n"
-            "F5 - Stop Playback",
+            "F5 - Stop Playback\n"
+            "Left Ctrl + Left Shift - Pause (hold to pause, release to resume)",
         )
 
     def _f5_signal_consumer(self):
@@ -996,7 +1134,7 @@ class MacroGUI(QMainWindow):
 
             # Third attempt: force kill if still alive
             if self._f5_subprocess.is_alive():
-                if hasattr(os, 'kill') and hasattr(self._f5_subprocess, 'pid'):
+                if hasattr(os, "kill") and hasattr(self._f5_subprocess, "pid"):
                     # POSIX systems
                     try:
                         os.kill(self._f5_subprocess.pid, signal.SIGKILL)
@@ -1010,18 +1148,22 @@ class MacroGUI(QMainWindow):
 
             # Verify termination
             if self._f5_subprocess.exitcode is None:
-                logging.warning("F5 subprocess did not terminate cleanly (exitcode: %s)",
-                              self._f5_subprocess.exitcode)
+                logging.warning(
+                    "F5 subprocess did not terminate cleanly (exitcode: %s)",
+                    self._f5_subprocess.exitcode,
+                )
             else:
-                logging.debug("F5 subprocess terminated with exitcode: %s",
-                            self._f5_subprocess.exitcode)
+                logging.debug(
+                    "F5 subprocess terminated with exitcode: %s",
+                    self._f5_subprocess.exitcode,
+                )
 
         # Close and cleanup the queue
         if self._f5_signal_queue is not None:
             try:
                 self._f5_signal_queue.close()
                 # Release background thread resources for multiprocessing.Queue
-                if hasattr(self._f5_signal_queue, 'join_thread'):
+                if hasattr(self._f5_signal_queue, "join_thread"):
                     self._f5_signal_queue.join_thread()
                 logging.debug("F5 signal queue closed and joined")
             except Exception as e:
@@ -1052,13 +1194,222 @@ class MacroGUI(QMainWindow):
             finally:
                 self._play_hotkey_listener = None
 
+    def _pause_signal_consumer(self):
+        """Thread that monitors the pause signal queue from subprocess."""
+        import queue
+
+        while not self._pause_consumer_stop_event.is_set():
+            try:
+                sig = self._pause_signal_queue.get(timeout=0.1)
+                if sig == "PAUSE":
+                    QTimer.singleShot(0, self._handle_pause)
+                elif sig == "RESUME":
+                    QTimer.singleShot(0, self._handle_resume)
+            except queue.Empty:
+                continue
+            except (OSError, ValueError):
+                logging.debug("Pause consumer thread: Queue closed, exiting")
+                break
+            except Exception:
+                logging.exception("Pause consumer thread: Unexpected error")
+                break
+
+    def _start_pause_hotkey(self):
+        """Start global listener for left Ctrl + left Shift pause hotkey."""
+        if (
+            self._pause_subprocess is not None
+            or self._pause_hotkey_listener is not None
+        ):
+            return
+
+        if sys.platform == "darwin":
+            try:
+                mp_ctx = mp.get_context("spawn")
+                self._pause_signal_queue = mp_ctx.Queue(maxsize=10)
+                self._pause_stop_event = mp_ctx.Event()
+
+                # Create a shared list for synthetic keys
+                self._synthetic_keys_manager = mp_ctx.Manager()
+                self._synthetic_keys_proxy = self._synthetic_keys_manager.list()
+
+                self._pause_subprocess = mp_ctx.Process(
+                    target=_pause_hotkey_subprocess,
+                    args=(
+                        self._pause_signal_queue,
+                        self._pause_stop_event,
+                        self._synthetic_keys_proxy,
+                    ),
+                )
+                self._pause_subprocess.start()
+
+                self._pause_consumer_stop_event = threading.Event()
+                self._pause_consumer_thread = threading.Thread(
+                    target=self._pause_signal_consumer,
+                    name="PauseHotkeyConsumer",
+                )
+                self._pause_consumer_thread.start()
+
+                logging.debug("Started pause hotkey subprocess on macOS")
+            except Exception as e:
+                logging.warning("Failed to start pause hotkey subprocess: %s", e)
+                self._cleanup_pause_subprocess()
+        else:
+            # Windows/Linux: use in-process listener
+            ctrl_l_pressed = False
+            shift_l_pressed = False
+            is_paused = False
+
+            def on_key_press(key):
+                nonlocal ctrl_l_pressed, shift_l_pressed, is_paused
+                try:
+                    # Check if synthetic
+                    key_str = str(key)
+                    if key_str in self.app.player._synthetic_keys:
+                        return
+
+                    if key == keyboard.Key.ctrl_l:
+                        ctrl_l_pressed = True
+                    elif key == keyboard.Key.shift_l:
+                        shift_l_pressed = True
+
+                    if ctrl_l_pressed and shift_l_pressed and not is_paused:
+                        is_paused = True
+                        QTimer.singleShot(0, self._handle_pause)
+                except Exception:
+                    logging.exception("Error in pause hotkey on_key_press")
+
+            def on_key_release(key):
+                nonlocal ctrl_l_pressed, shift_l_pressed, is_paused
+                try:
+                    if key == keyboard.Key.ctrl_l:
+                        ctrl_l_pressed = False
+                    elif key == keyboard.Key.shift_l:
+                        shift_l_pressed = False
+
+                    if is_paused and (not ctrl_l_pressed or not shift_l_pressed):
+                        is_paused = False
+                        QTimer.singleShot(0, self._handle_resume)
+                except Exception:
+                    logging.exception("Error in pause hotkey on_key_release")
+
+            try:
+                self._pause_hotkey_listener = keyboard.Listener(
+                    on_press=on_key_press, on_release=on_key_release
+                )
+                self._pause_hotkey_listener.start()
+            except Exception as e:
+                logging.warning("Failed to start pause hotkey listener: %s", e)
+                self._pause_hotkey_listener = None
+
+    def _cleanup_pause_subprocess(self):
+        """Clean up the pause hotkey subprocess and associated resources."""
+        if self._pause_consumer_stop_event is not None:
+            self._pause_consumer_stop_event.set()
+        if (
+            self._pause_consumer_thread is not None
+            and self._pause_consumer_thread.is_alive()
+        ):
+            self._pause_consumer_thread.join(timeout=1.0)
+            if self._pause_consumer_thread.is_alive():
+                logging.warning("Pause consumer thread did not stop within timeout")
+
+        if self._pause_stop_event is not None:
+            self._pause_stop_event.set()
+
+        if self._pause_subprocess is not None and self._pause_subprocess.is_alive():
+            self._pause_subprocess.join(timeout=1.0)
+            if self._pause_subprocess.is_alive():
+                self._pause_subprocess.terminate()
+                self._pause_subprocess.join(timeout=0.5)
+            if self._pause_subprocess.is_alive():
+                if hasattr(os, "kill") and hasattr(self._pause_subprocess, "pid"):
+                    try:
+                        os.kill(self._pause_subprocess.pid, signal.SIGKILL)
+                    except (OSError, ProcessLookupError):
+                        pass
+                else:
+                    self._pause_subprocess.kill()
+                self._pause_subprocess.join(timeout=0.5)
+
+        if self._pause_signal_queue is not None:
+            try:
+                self._pause_signal_queue.close()
+                if hasattr(self._pause_signal_queue, "join_thread"):
+                    self._pause_signal_queue.join_thread()
+            except Exception as e:
+                logging.warning("Error closing pause signal queue: %s", e)
+
+        # Shutdown the manager
+        if self._synthetic_keys_manager is not None:
+            try:
+                self._synthetic_keys_manager.shutdown()
+            except Exception:
+                pass
+
+        self._pause_subprocess = None
+        self._pause_stop_event = None
+        self._pause_signal_queue = None
+        self._pause_consumer_thread = None
+        self._pause_consumer_stop_event = None
+        self._synthetic_keys_manager = None
+        self._synthetic_keys_proxy = None
+
+    def _stop_pause_hotkey(self):
+        """Stop and clear the pause hotkey listener."""
+        if self._pause_subprocess is not None:
+            try:
+                self._cleanup_pause_subprocess()
+            except Exception:
+                logging.exception("Error stopping pause hotkey subprocess")
+
+        if self._pause_hotkey_listener is not None:
+            try:
+                self._pause_hotkey_listener.stop()
+            except Exception:
+                logging.exception("Error stopping pause hotkey listener")
+            finally:
+                self._pause_hotkey_listener = None
+
+    def _handle_pause(self):
+        """Pause playback and bring window to front."""
+        if self.app.player.playing and not self.app.player.paused:
+            self.app.player.pause()
+            self.status_bar.showMessage("⏸️ Paused - Release Ctrl+Shift to resume")
+            # Bring window to front
+            self.show()
+            self.raise_()
+            self.activateWindow()
+            # Restore always-on-top temporarily
+            if not self.windowFlags() & Qt.WindowType.WindowStaysOnTopHint:
+                self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+                self.show()
+
+    def _handle_resume(self):
+        """Resume playback after pause."""
+        if self.app.player.playing and self.app.player.paused:
+            self.app.player.resume()
+            # Update status based on loop info
+            player = self.app.player
+            current = player.current_loop or 1
+            total = player.total_loops
+            if total == -1:
+                self.status_bar.showMessage(f"🔁 Running {current}/∞ loops")
+            else:
+                self.status_bar.showMessage(f"🔄 Running {current}/{total} loops")
+            # Send window back if it was backgrounded
+            if self._restore_on_top_after_play:
+                self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, False)
+                self.show()
+                self.lower()
+
     def _cleanup_after_playback(self):
-        # Beep to signal completion and stop any global hotkey listener
+        # Beep to signal completion and stop any global hotkey listeners
         try:
             QApplication.beep()
         except Exception:
             pass
         self._stop_playback_hotkeys()
+        self._stop_pause_hotkey()
         # Restore window if it was backgrounded for playback
         if self._restore_on_top_after_play:
             self._restore_on_top_after_play = False
@@ -1069,7 +1420,7 @@ class MacroGUI(QMainWindow):
             self.activateWindow()
 
     def _prepare_for_playback(self):
-        """Lower window, manage top-most state, and enable F5 stop hotkey."""
+        """Lower window, manage top-most state, and enable F5 stop and pause hotkeys."""
         # Parse max idle time from GUI and pass to app
         max_idle_text = self.max_idle_entry.text().strip()
         if max_idle_text:
@@ -1083,13 +1434,14 @@ class MacroGUI(QMainWindow):
         else:
             self.app.max_idle_time = None
 
-        # Send window to background and manage always-on-top, then enable F5 stop
+        # Send window to background and manage always-on-top, then enable hotkeys
         if self.isVisible():
             if self.always_on_top_action.isChecked():
                 self._restore_on_top_after_play = True
                 self.always_on_top_action.setChecked(False)
             self.lower()
         self._start_playback_hotkeys()
+        self._start_pause_hotkey()
 
     def _start_recording_delayed(self):
         """Start recording after PyQt6 event loop is fully initialized"""
@@ -1117,12 +1469,8 @@ class MacroGUI(QMainWindow):
             self._log_append(
                 "• Go to System Preferences → Security & Privacy → Privacy"
             )
-            self._log_append(
-                "• Click 'Accessibility' and add your Terminal or Python"
-            )
-            self._log_append(
-                "• Restart the application after granting permissions"
-            )
+            self._log_append("• Click 'Accessibility' and add your Terminal or Python")
+            self._log_append("• Restart the application after granting permissions")
 
             # Reset button state
             self.toggle_log_action.blockSignals(True)
@@ -1145,8 +1493,9 @@ class MacroGUI(QMainWindow):
         if self.app.recorder.recording:
             self.app.stop_recording()
 
-        # Clean up F5 hotkey resources
+        # Clean up hotkey resources
         self._stop_playback_hotkeys()
+        self._stop_pause_hotkey()
 
         # Stop timers
         if self.log_timer.isActive():

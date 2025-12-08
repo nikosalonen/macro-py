@@ -3,8 +3,10 @@
 Provides mouse/keyboard playback with loop control and defensive handling
 for malformed events.
 """
+
 import time
 import logging
+import threading
 from pynput.mouse import Button, Controller as MouseController
 from pynput.keyboard import Key, Controller as KeyboardController
 
@@ -19,6 +21,10 @@ class MacroPlayer:
         self.stop_flag = False
         self.current_loop = 0
         self.total_loops = 0  # -1 for infinite
+        self.paused = False
+        self._pause_lock = threading.Lock()
+        # Track keys currently being pressed synthetically (for filtering)
+        self._synthetic_keys = set()
 
     def play_macro(self, events, loops=1, speed=1.0, max_idle_time=None):
         """Play a list of recorded events.
@@ -55,6 +61,10 @@ class MacroPlayer:
                 if self.stop_flag:
                     break
 
+                # Check for pause before each event
+                if not self._wait_while_paused():
+                    break
+
                 # Skip control/meta events or events missing timing
                 event_type = event.get("type")
                 if not event_type:
@@ -66,28 +76,51 @@ class MacroPlayer:
                 if not isinstance(event_time, (int, float)):
                     continue
 
-                # Wait for the appropriate time
+                # Wait for the appropriate time (in small chunks to stay responsive to pause)
                 wait_time = (event_time - last_time) / speed
                 # Cap wait time if max_idle_time is set
                 if max_idle_time is not None and wait_time > max_idle_time:
                     wait_time = max_idle_time
                 if wait_time > 0:
-                    time.sleep(wait_time)
+                    # Sleep in small chunks to respond to pause/stop quickly
+                    remaining = wait_time
+                    while remaining > 0 and not self.stop_flag:
+                        if not self._wait_while_paused():
+                            break
+                        chunk = min(remaining, 0.05)
+                        time.sleep(chunk)
+                        remaining -= chunk
                 last_time = event_time
+
+                if self.stop_flag:
+                    break
 
                 # Execute the event
                 self.execute_event(event)
 
             # Wait for final idle period before next loop (time from last event to F2 press)
-            if not self.stop_flag and recording_end_time is not None and last_time < recording_end_time:
+            if (
+                not self.stop_flag
+                and recording_end_time is not None
+                and last_time < recording_end_time
+            ):
                 final_wait = (recording_end_time - last_time) / speed
                 if max_idle_time is not None and final_wait > max_idle_time:
                     final_wait = max_idle_time
                 if final_wait > 0:
-                    time.sleep(final_wait)
+                    # Sleep in small chunks for pause responsiveness
+                    remaining = final_wait
+                    while remaining > 0 and not self.stop_flag:
+                        if not self._wait_while_paused():
+                            break
+                        chunk = min(remaining, 0.05)
+                        time.sleep(chunk)
+                        remaining -= chunk
 
             loop_count += 1
 
+        self.paused = False
+        self._synthetic_keys.clear()
         self.playing = False
 
     def execute_event(self, event):
@@ -129,6 +162,8 @@ class MacroPlayer:
                 logging.debug("key_press missing key; skipping")
                 return
             key = self.parse_key(key_str)
+            # Track synthetic key for pause hotkey filtering
+            self._synthetic_keys.add(key_str)
             self.keyboard.press(key)
 
         elif event_type == "key_release":
@@ -138,6 +173,8 @@ class MacroPlayer:
                 return
             key = self.parse_key(key_str)
             self.keyboard.release(key)
+            # Remove from synthetic tracking after release
+            self._synthetic_keys.discard(key_str)
 
     def parse_button(self, button_str):
         """Map a recorded button string to a pynput Button."""
@@ -160,3 +197,23 @@ class MacroPlayer:
     def stop_playback(self):
         """Signal the playback loop to stop after the current event."""
         self.stop_flag = True
+
+    def pause(self):
+        """Pause playback. Macro will wait until resumed."""
+        with self._pause_lock:
+            self.paused = True
+
+    def resume(self):
+        """Resume playback after pause."""
+        with self._pause_lock:
+            self.paused = False
+
+    def is_key_synthetic(self, key):
+        """Check if a key is currently being pressed synthetically by the macro."""
+        return key in self._synthetic_keys
+
+    def _wait_while_paused(self):
+        """Block until unpaused or stopped. Returns True if should continue."""
+        while self.paused and not self.stop_flag:
+            time.sleep(0.05)
+        return not self.stop_flag
