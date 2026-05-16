@@ -3,6 +3,7 @@
 Uses pynput to capture events. On macOS, runs listeners in a subprocess to
 avoid CGEventTap conflicts with Qt, forwarding events to the parent process.
 """
+
 import time
 import json
 import sys
@@ -10,13 +11,17 @@ import logging
 import multiprocessing as mp
 import threading
 import queue
+from multiprocessing.queues import Queue as MpQueue
+from multiprocessing.synchronize import Event as MpEvent
 from pynput import mouse, keyboard
 
 # Configure logging to help debug issues
 logging.basicConfig(level=logging.INFO)
 
 
-def _macro_listener_subprocess(event_queue: mp.Queue, stop_event: mp.Event) -> None:
+def _macro_listener_subprocess(
+    event_queue: MpQueue[dict[str, object]], stop_event: MpEvent
+) -> None:
     """Run pynput listeners in an isolated subprocess (macOS workaround).
 
     Sends event dicts to parent via event_queue. Exits when stop_event is set.
@@ -542,9 +547,15 @@ class MacroRecorder:
                 # Intercept stop hotkey (F2) as a control event (non-macOS in-process)
                 if key == keyboard.Key.f2:
                     # Compute timestamp deterministically (0.0 if start_time is None)
-                    timestamp = 0.0 if self.start_time is None else time.time() - self.start_time
+                    timestamp = (
+                        0.0
+                        if self.start_time is None
+                        else time.time() - self.start_time
+                    )
                     with self._events_lock:
-                        self.events.append({"type": "__stop_request__", "time": timestamp})
+                        self.events.append(
+                            {"type": "__stop_request__", "time": timestamp}
+                        )
                     return
 
                 try:

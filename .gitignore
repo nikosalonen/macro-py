@@ -5,3 +5,5 @@ __pycache__/
 .uv-cache/
 *.pyc
 *.egg-info
+# Added by code-review-graph
+.code-review-graph/

@@ -4,10 +4,12 @@
 This script creates a large number of events to test the performance
 improvements of the Qt Model-View architecture.
 """
+
 import sys
 import time
+import os
 from PyQt6.QtWidgets import QApplication
-from src.macro_py.MacroGUI import EventLogModel
+from macro_py.MacroGUI import EventLogModel
 
 
 def generate_test_events(count):
@@ -15,48 +17,42 @@ def generate_test_events(count):
     events = []
     for i in range(count):
         if i % 5 == 0:
-            events.append({
-                "type": "mouse_move",
-                "x": 100 + i,
-                "y": 200 + i,
-                "time": i * 0.01
-            })
+            events.append(
+                {"type": "mouse_move", "x": 100 + i, "y": 200 + i, "time": i * 0.01}
+            )
         elif i % 5 == 1:
-            events.append({
-                "type": "mouse_click",
-                "button": "Button.left",
-                "pressed": True,
-                "x": 100,
-                "y": 200,
-                "time": i * 0.01
-            })
+            events.append(
+                {
+                    "type": "mouse_click",
+                    "button": "Button.left",
+                    "pressed": True,
+                    "x": 100,
+                    "y": 200,
+                    "time": i * 0.01,
+                }
+            )
         elif i % 5 == 2:
-            events.append({
-                "type": "key_press",
-                "key": "'a'",
-                "time": i * 0.01
-            })
+            events.append({"type": "key_press", "key": "'a'", "time": i * 0.01})
         elif i % 5 == 3:
-            events.append({
-                "type": "key_release",
-                "key": "'a'",
-                "time": i * 0.01
-            })
+            events.append({"type": "key_release", "key": "'a'", "time": i * 0.01})
         else:
-            events.append({
-                "type": "mouse_scroll",
-                "dx": 0,
-                "dy": -1,
-                "x": 500,
-                "y": 500,
-                "time": i * 0.01
-            })
+            events.append(
+                {
+                    "type": "mouse_scroll",
+                    "dx": 0,
+                    "dy": -1,
+                    "x": 500,
+                    "y": 500,
+                    "time": i * 0.01,
+                }
+            )
     return events
 
 
-def test_model_performance():
+def run_model_performance():
     """Test adding events to the model and measure performance."""
-    app = QApplication(sys.argv)
+    app = QApplication.instance() or QApplication(sys.argv)
+    assert app is not None
 
     # Test with different event counts
     test_sizes = [100, 1000, 5000, 10000]
@@ -93,5 +89,15 @@ def test_model_performance():
     print("  • Easy filtering and sorting capabilities")
 
 
+def test_model_performance():
+    """Run the manual Qt benchmark only when explicitly requested."""
+    if os.environ.get("MACRO_PY_RUN_PERF_TESTS") != "1":
+        import pytest
+
+        pytest.skip("Set MACRO_PY_RUN_PERF_TESTS=1 to run this Qt benchmark.")
+
+    run_model_performance()
+
+
 if __name__ == "__main__":
-    test_model_performance()
+    run_model_performance()

@@ -2,6 +2,7 @@
 
 Provides CLI-mode hotkeys and bridges between the recorder and player.
 """
+
 import time
 from threading import Thread
 from pynput import keyboard
@@ -22,6 +23,7 @@ class MacroApp:
 
     def setup_hotkeys(self):
         """Configure global hotkeys for CLI mode (not used by GUI)."""
+
         # Global hotkeys with pynput
         def on_key_press(key):
             try:
@@ -71,7 +73,8 @@ class MacroApp:
             if self.macro_data:
                 # Filter out control events for timing analysis
                 timed_events = [
-                    e for e in self.macro_data
+                    e
+                    for e in self.macro_data
                     if e.get("type") not in ("__stop_request__", "__system_message__")
                     and isinstance(e.get("time"), (int, float))
                 ]
@@ -79,7 +82,9 @@ class MacroApp:
                     first_time = timed_events[0].get("time", 0)
                     last_time = timed_events[-1].get("time", 0)
                     duration = last_time - first_time
-                    print(f"⏱️ Timing: first={first_time:.2f}s, last={last_time:.2f}s, duration={duration:.2f}s")
+                    print(
+                        f"⏱️ Timing: first={first_time:.2f}s, last={last_time:.2f}s, duration={duration:.2f}s"
+                    )
 
     def play_once(self):
         """Play current macro once."""
@@ -139,8 +144,7 @@ class MacroApp:
     def run(self):
         """Run CLI loop with global hotkeys until exit."""
         self.setup_hotkeys()
-        print(
-            """
+        print("""
         🎮 Macro Recorder Ready!
         ========================
         F1 - Start Recording
@@ -152,8 +156,7 @@ class MacroApp:
         Ctrl+Shift+L - Load Macro
         ESC - Exit
         ========================
-        """
-        )
+        """)
 
         try:
             while self.running:

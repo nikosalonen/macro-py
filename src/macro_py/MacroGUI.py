@@ -2,6 +2,7 @@
 
 Compact window with toolbar, options, and a log section.
 """
+
 import sys
 import os
 import signal
@@ -59,10 +60,14 @@ def _f5_hotkey_subprocess(stop_signal_queue, stop_event):
                 try:
                     stop_signal_queue.put("STOP", timeout=0.1)
                 except queue.Full:
-                    logger.warning("F5 hotkey subprocess: Queue full, STOP signal dropped")
-                except (OSError, ValueError):
+                    logger.warning(
+                        "F5 hotkey subprocess: Queue full, STOP signal dropped"
+                    )
+                except OSError, ValueError:
                     # Queue closed or invalid state
-                    logger.exception("F5 hotkey subprocess: Queue error when sending STOP")
+                    logger.exception(
+                        "F5 hotkey subprocess: Queue error when sending STOP"
+                    )
         except AttributeError:
             # Key doesn't have the expected attributes
             pass
@@ -88,7 +93,7 @@ def _f5_hotkey_subprocess(stop_signal_queue, stop_event):
             try:
                 listener.stop()
                 # Wait for listener thread to finish
-                if hasattr(listener, 'join'):
+                if hasattr(listener, "join"):
                     listener.join(timeout=1.0)
                 logger.debug("F5 hotkey subprocess: Listener stopped")
             except Exception:
@@ -194,9 +199,7 @@ class EventLogModel(QAbstractListModel):
             ):
                 self.last_mouse_pos = (x, y)
                 self.mouse_move_count += 1
-                return (
-                    f"🖱️  [{timestamp}] Mouse Move #{self.mouse_move_count} → ({x}, {y})"
-                )
+                return f"🖱️  [{timestamp}] Mouse Move #{self.mouse_move_count} → ({x}, {y})"
             return None  # Skip this event
 
         elif event_type == "mouse_click":
@@ -242,22 +245,33 @@ class EventLogDelegate(QStyledItemDelegate):
         if text:
             # Color code based on emoji/event type
             if text.startswith("🖱️"):
-                option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.mouse_color)
+                option.palette.setColor(
+                    QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.mouse_color
+                )
             elif text.startswith("⌨️"):
-                option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.keyboard_color)
+                option.palette.setColor(
+                    QPalette.ColorGroup.All,
+                    QPalette.ColorRole.Text,
+                    self.keyboard_color,
+                )
             elif (
                 text.startswith("📝")
                 or text.startswith("✅")
                 or text.startswith("⏳")
                 or text.startswith("💡")
             ):
-                option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.system_color)
+                option.palette.setColor(
+                    QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.system_color
+                )
             elif text.startswith("❌") or text.startswith("❓"):
-                option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.unknown_color)
+                option.palette.setColor(
+                    QPalette.ColorGroup.All, QPalette.ColorRole.Text, self.unknown_color
+                )
 
 
 class MacroGUI(QMainWindow):
     """Main window for recording and playback controls with logging."""
+
     def __init__(self):
         super().__init__()
         self.app = MacroApp()
@@ -297,8 +311,7 @@ class MacroGUI(QMainWindow):
         self.log_console.setItemDelegate(self.log_delegate)
 
         self.log_console.setMaximumHeight(200)
-        self.log_console.setStyleSheet(
-            """
+        self.log_console.setStyleSheet("""
             QListView {
                 background-color: #1e1e1e;
                 color: #ffffff;
@@ -309,15 +322,13 @@ class MacroGUI(QMainWindow):
             QListView::item:alternate {
                 background-color: #252525;
             }
-        """
-        )
+        """)
         # Enable alternating row colors for better readability
         self.log_console.setAlternatingRowColors(True)
         # Disable editing
         self.log_console.setEditTriggers(QListView.EditTrigger.NoEditTriggers)
         self.log_section = QGroupBox("Log")
-        self.log_section.setStyleSheet(
-            """
+        self.log_section.setStyleSheet("""
             QGroupBox {
                 border: 1px solid #c8c8c8;
                 border-radius: 4px;
@@ -330,8 +341,7 @@ class MacroGUI(QMainWindow):
                 color: #666;
                 font-weight: 600;
             }
-        """
-        )
+        """)
         log_section_layout = QVBoxLayout(self.log_section)
         log_section_layout.setContentsMargins(8, 8, 8, 8)
         log_section_layout.setSpacing(6)
@@ -498,7 +508,9 @@ class MacroGUI(QMainWindow):
         self.max_idle_entry = QLineEdit("")
         self.max_idle_entry.setFixedWidth(60)
         self.max_idle_entry.setPlaceholderText("none")
-        self.max_idle_entry.setToolTip("Max delay between events during playback (empty = no limit, min 1)")
+        self.max_idle_entry.setToolTip(
+            "Max delay between events during playback (empty = no limit, min 1)"
+        )
         self.max_idle_entry.setValidator(QIntValidator(1, 999999, self))
         options_layout.addWidget(self.max_idle_entry)
 
@@ -512,8 +524,7 @@ class MacroGUI(QMainWindow):
 
         # Shortcuts (compact, always visible)
         self.shortcuts_group = QGroupBox("Shortcuts")
-        self.shortcuts_group.setStyleSheet(
-            """
+        self.shortcuts_group.setStyleSheet("""
             QGroupBox {
                 border: 1px solid #e0e0e0;
                 border-radius: 4px;
@@ -526,13 +537,16 @@ class MacroGUI(QMainWindow):
                 color: #666;
                 font-weight: 600;
             }
-        """
-        )
+        """)
         shortcuts_layout = QVBoxLayout(self.shortcuts_group)
         shortcuts_layout.setContentsMargins(8, 8, 8, 8)
         shortcuts_layout.setSpacing(4)
-        shortcuts_label = QLabel("F1 - Start • F2 - Stop Rec • F3 - Play Once • F5 - Stop")
-        shortcuts_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        shortcuts_label = QLabel(
+            "F1 - Start • F2 - Stop Rec • F3 - Play Once • F5 - Stop"
+        )
+        shortcuts_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
         shortcuts_label.setStyleSheet("color: #666;")
         shortcuts_layout.addWidget(shortcuts_label)
         layout.addWidget(self.shortcuts_group)
@@ -600,9 +614,7 @@ class MacroGUI(QMainWindow):
                 self._log_append(
                     "• Click 'Accessibility' and add your Terminal or Python"
                 )
-                self._log_append(
-                    "• Restart the application after granting permissions"
-                )
+                self._log_append("• Restart the application after granting permissions")
 
                 # Reset button state
                 self.toggle_log_action.blockSignals(True)
@@ -752,7 +764,9 @@ class MacroGUI(QMainWindow):
         if not self.app.recorder.recording:
             return
 
-        new_events, current_count = self.app.recorder.get_events_since(self.last_event_count)
+        new_events, current_count = self.app.recorder.get_events_since(
+            self.last_event_count
+        )
         if new_events:
             # Add new events to log
             any_added = False
@@ -913,7 +927,7 @@ class MacroGUI(QMainWindow):
             except queue.Empty:
                 # Timeout - normal operation, continue polling
                 continue
-            except (OSError, ValueError):
+            except OSError, ValueError:
                 # Queue closed or invalid state - exit gracefully
                 logging.debug("F5 consumer thread: Queue closed, exiting")
                 break
@@ -996,11 +1010,11 @@ class MacroGUI(QMainWindow):
 
             # Third attempt: force kill if still alive
             if self._f5_subprocess.is_alive():
-                if hasattr(os, 'kill') and hasattr(self._f5_subprocess, 'pid'):
+                if hasattr(os, "kill") and hasattr(self._f5_subprocess, "pid"):
                     # POSIX systems
                     try:
                         os.kill(self._f5_subprocess.pid, signal.SIGKILL)
-                    except (OSError, ProcessLookupError):
+                    except OSError, ProcessLookupError:
                         pass  # Process already terminated
                 else:
                     # Fallback for non-POSIX or if kill() fails
@@ -1010,18 +1024,22 @@ class MacroGUI(QMainWindow):
 
             # Verify termination
             if self._f5_subprocess.exitcode is None:
-                logging.warning("F5 subprocess did not terminate cleanly (exitcode: %s)",
-                              self._f5_subprocess.exitcode)
+                logging.warning(
+                    "F5 subprocess did not terminate cleanly (exitcode: %s)",
+                    self._f5_subprocess.exitcode,
+                )
             else:
-                logging.debug("F5 subprocess terminated with exitcode: %s",
-                            self._f5_subprocess.exitcode)
+                logging.debug(
+                    "F5 subprocess terminated with exitcode: %s",
+                    self._f5_subprocess.exitcode,
+                )
 
         # Close and cleanup the queue
         if self._f5_signal_queue is not None:
             try:
                 self._f5_signal_queue.close()
                 # Release background thread resources for multiprocessing.Queue
-                if hasattr(self._f5_signal_queue, 'join_thread'):
+                if hasattr(self._f5_signal_queue, "join_thread"):
                     self._f5_signal_queue.join_thread()
                 logging.debug("F5 signal queue closed and joined")
             except Exception as e:
@@ -1117,12 +1135,8 @@ class MacroGUI(QMainWindow):
             self._log_append(
                 "• Go to System Preferences → Security & Privacy → Privacy"
             )
-            self._log_append(
-                "• Click 'Accessibility' and add your Terminal or Python"
-            )
-            self._log_append(
-                "• Restart the application after granting permissions"
-            )
+            self._log_append("• Click 'Accessibility' and add your Terminal or Python")
+            self._log_append("• Restart the application after granting permissions")
 
             # Reset button state
             self.toggle_log_action.blockSignals(True)

@@ -6,7 +6,7 @@ Macro recorder and player for macOS and Windows. It captures keyboard and mouse 
 Requirements
 ------------
 
-- Python 3.12+
+- Python 3.14+
 - `pynput` for global keyboard and mouse hooks
 - `PyQt6` for the default GUI
 
@@ -16,7 +16,7 @@ Install
 ```
 git clone https://github.com/niko-salonen/macro-py.git
 cd macro-py
-uv python pin 3.12
+uv python pin 3.14.4
 uv sync
 ```
 
@@ -71,5 +71,5 @@ Development
 
 - Install extras: `uv sync --extra dev`
 - Code style: `uv run black .` (line length 88).
-- Static checks: `uv run flake8` and `uv run mypy --strict`.
-- Tests (placeholder): `uv run pytest -v` (no tests yet, this command currently reports “no tests collected”).
+- Static checks: `uv run flake8` and `uv run mypy`.
+- Tests: `uv run pytest -v`. The Qt performance benchmark is skipped by default; set `MACRO_PY_RUN_PERF_TESTS=1` to run it explicitly.

@@ -3,6 +3,7 @@
 Provides mouse/keyboard playback with loop control and defensive handling
 for malformed events.
 """
+
 import time
 import logging
 from pynput.mouse import Button, Controller as MouseController
@@ -79,7 +80,11 @@ class MacroPlayer:
                 self.execute_event(event)
 
             # Wait for final idle period before next loop (time from last event to F2 press)
-            if not self.stop_flag and recording_end_time is not None and last_time < recording_end_time:
+            if (
+                not self.stop_flag
+                and recording_end_time is not None
+                and last_time < recording_end_time
+            ):
                 final_wait = (recording_end_time - last_time) / speed
                 if max_idle_time is not None and final_wait > max_idle_time:
                     final_wait = max_idle_time
