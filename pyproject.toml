@@ -57,9 +57,7 @@ target-version = ['py314']
 [tool.mypy]
 python_version = "3.14"
 files = ["src"]
-# strict is intentionally disabled for Python 3.14 because the current
-# source tree is not yet strict-clean; keep the non-strict baseline green
-# while annotations are tightened incrementally.
+strict = true
 warn_return_any = true
 warn_unused_configs = true
 

@@ -4,23 +4,27 @@ Uses pynput to capture events. On macOS, runs listeners in a subprocess to
 avoid CGEventTap conflicts with Qt, forwarding events to the parent process.
 """
 
-import time
 import json
-import sys
 import logging
 import multiprocessing as mp
-import threading
 import queue
+import sys
+import threading
+import time
 from multiprocessing.queues import Queue as MpQueue
 from multiprocessing.synchronize import Event as MpEvent
+from typing import Any, cast
+
 from pynput import mouse, keyboard
+
+from ._types import MacroEvent
 
 # Configure logging to help debug issues
 logging.basicConfig(level=logging.INFO)
 
 
 def _macro_listener_subprocess(
-    event_queue: MpQueue[dict[str, object]], stop_event: MpEvent
+    event_queue: MpQueue[MacroEvent], stop_event: MpEvent
 ) -> None:
     """Run pynput listeners in an isolated subprocess (macOS workaround).
 
@@ -31,7 +35,7 @@ def _macro_listener_subprocess(
         start_time = time.time()
 
         # Local callbacks capture event_queue and start_time
-        def on_move(x, y):
+        def on_move(x: int, y: int) -> None:
             try:
                 event_queue.put(
                     {
@@ -45,7 +49,7 @@ def _macro_listener_subprocess(
             except Exception as e:
                 print(f"⚠️ [SUB] on_move error: {e}")
 
-        def on_click(x, y, button, pressed):
+        def on_click(x: int, y: int, button: Any, pressed: bool) -> None:
             try:
                 event_queue.put(
                     {
@@ -61,7 +65,7 @@ def _macro_listener_subprocess(
             except Exception as e:
                 print(f"⚠️ [SUB] on_click error: {e}")
 
-        def on_scroll(x, y, dx, dy):
+        def on_scroll(x: int, y: int, dx: int, dy: int) -> None:
             try:
                 event_queue.put(
                     {
@@ -77,7 +81,7 @@ def _macro_listener_subprocess(
             except Exception as e:
                 print(f"⚠️ [SUB] on_scroll error: {e}")
 
-        def on_key_press(key):
+        def on_key_press(key: Any) -> None:
             try:
                 # Intercept stop hotkey (F2) as a control event to parent
                 if key == keyboard.Key.f2:
@@ -108,7 +112,7 @@ def _macro_listener_subprocess(
             except Exception as e:
                 print(f"⚠️ [SUB] on_key_press error: {e}")
 
-        def on_key_release(key):
+        def on_key_release(key: Any) -> None:
             try:
                 try:
                     key_name = key.char
@@ -180,23 +184,23 @@ def _macro_listener_subprocess(
 
 
 class MacroRecorder:
-    def __init__(self):
-        self.events = []
+    def __init__(self) -> None:
+        self.events: list[MacroEvent] = []
         self._events_lock = threading.Lock()
         self.recording = False
-        self.start_time = None
-        self.mouse_listener = None
-        self.keyboard_listener = None
+        self.start_time: float | None = None
+        self.mouse_listener: Any | None = None
+        self.keyboard_listener: Any | None = None
         self._is_darwin = sys.platform == "darwin"
         # macOS subprocess strategy
-        self._mp_ctx = None
-        self._event_queue = None
-        self._proc = None
-        self._stop_mp_event = None
-        self._receiver_thread = None
-        self._receiver_stop_event = None
+        self._mp_ctx: Any | None = None
+        self._event_queue: MpQueue[MacroEvent] | None = None
+        self._proc: Any | None = None
+        self._stop_mp_event: MpEvent | None = None
+        self._receiver_thread: threading.Thread | None = None
+        self._receiver_stop_event: threading.Event | None = None
 
-    def start_recording(self):
+    def start_recording(self) -> None:
         """Start recording with robust error handling"""
         print("🔍 [DEBUG] MacroRecorder.start_recording called")
         print("📝 Initializing macro recorder...")
@@ -334,7 +338,7 @@ class MacroRecorder:
                 print("🔍 [DEBUG] About to raise RuntimeError")
                 raise RuntimeError(error_msg)
 
-    def stop_recording(self):
+    def stop_recording(self) -> None:
         """Stop recording with safe cleanup"""
         self.recording = False
         print("🛑 Stopping recording...")
@@ -419,19 +423,20 @@ class MacroRecorder:
     def _queue_consumer(self) -> None:
         """Consume events from subprocess and append to self.events."""
         print("🔍 [DEBUG] Queue consumer thread started")
+        event_queue = self._event_queue
+        if event_queue is None:
+            return
         while True:
-            if (
-                self._receiver_stop_event is not None
-                and self._receiver_stop_event.is_set()
-            ):
+            receiver_stop_event = self._receiver_stop_event
+            if receiver_stop_event is not None and receiver_stop_event.is_set():
                 # Still drain quickly to avoid losing tail events
                 try:
-                    item = self._event_queue.get(timeout=0.2)
+                    item = event_queue.get(timeout=0.2)
                 except Exception:
                     break
             else:
                 try:
-                    item = self._event_queue.get(timeout=0.5)
+                    item = event_queue.get(timeout=0.5)
                 except Exception:
                     continue
 
@@ -451,7 +456,7 @@ class MacroRecorder:
                         self.events.append(
                             {
                                 "type": "__stop_request__",
-                                "time": time.time() - (self.start_time or time.time()),
+                                "time": self._elapsed_time(),
                             }
                         )
                 except Exception:
@@ -485,14 +490,21 @@ class MacroRecorder:
         self._event_queue = None
         if self._receiver_thread is not None:
             try:
-                self._receiver_stop_event.set()
+                if self._receiver_stop_event is not None:
+                    self._receiver_stop_event.set()
                 self._receiver_thread.join(timeout=1.0)
             except Exception:
                 pass
         self._receiver_thread = None
         self._receiver_stop_event = None
 
-    def on_move(self, x, y):
+    def _elapsed_time(self) -> float:
+        """Return elapsed recording time, or 0.0 before recording starts."""
+        if self.start_time is None:
+            return 0.0
+        return time.time() - self.start_time
+
+    def on_move(self, x: int, y: int) -> None:
         try:
             if self.recording:
                 with self._events_lock:
@@ -501,13 +513,13 @@ class MacroRecorder:
                             "type": "mouse_move",
                             "x": x,
                             "y": y,
-                            "time": time.time() - self.start_time,
+                            "time": self._elapsed_time(),
                         }
                     )
         except Exception as e:
             print(f"⚠️ on_move error: {e}")
 
-    def on_click(self, x, y, button, pressed):
+    def on_click(self, x: int, y: int, button: Any, pressed: bool) -> None:
         try:
             if self.recording:
                 with self._events_lock:
@@ -518,13 +530,13 @@ class MacroRecorder:
                             "y": y,
                             "button": str(button),
                             "pressed": pressed,
-                            "time": time.time() - self.start_time,
+                            "time": self._elapsed_time(),
                         }
                     )
         except Exception as e:
             print(f"⚠️ on_click error: {e}")
 
-    def on_scroll(self, x, y, dx, dy):
+    def on_scroll(self, x: int, y: int, dx: int, dy: int) -> None:
         try:
             if self.recording:
                 with self._events_lock:
@@ -535,23 +547,19 @@ class MacroRecorder:
                             "y": y,
                             "dx": dx,
                             "dy": dy,
-                            "time": time.time() - self.start_time,
+                            "time": self._elapsed_time(),
                         }
                     )
         except Exception as e:
             print(f"⚠️ on_scroll error: {e}")
 
-    def on_key_press(self, key):
+    def on_key_press(self, key: Any) -> None:
         try:
             if self.recording:
                 # Intercept stop hotkey (F2) as a control event (non-macOS in-process)
                 if key == keyboard.Key.f2:
                     # Compute timestamp deterministically (0.0 if start_time is None)
-                    timestamp = (
-                        0.0
-                        if self.start_time is None
-                        else time.time() - self.start_time
-                    )
+                    timestamp = self._elapsed_time()
                     with self._events_lock:
                         self.events.append(
                             {"type": "__stop_request__", "time": timestamp}
@@ -568,13 +576,13 @@ class MacroRecorder:
                         {
                             "type": "key_press",
                             "key": key_name,
-                            "time": time.time() - self.start_time,
+                            "time": self._elapsed_time(),
                         }
                     )
         except Exception:
             logging.exception("on_key_press error")
 
-    def on_key_release(self, key):
+    def on_key_release(self, key: Any) -> None:
         try:
             if self.recording:
                 try:
@@ -587,25 +595,27 @@ class MacroRecorder:
                         {
                             "type": "key_release",
                             "key": key_name,
-                            "time": time.time() - self.start_time,
+                            "time": self._elapsed_time(),
                         }
                     )
         except Exception as e:
             print(f"⚠️ on_key_release error: {e}")
 
-    def save_macro(self, filename):
+    def save_macro(self, filename: str) -> None:
         with self._events_lock:
             snapshot = list(self.events)
         with open(filename, "w") as f:
             json.dump(snapshot, f, indent=2)
 
-    def load_macro(self, filename):
+    def load_macro(self, filename: str) -> None:
         with open(filename, "r") as f:
             loaded = json.load(f)
+        if not isinstance(loaded, list):
+            raise ValueError("Macro file must contain a list of events")
         with self._events_lock:
-            self.events = loaded
+            self.events = cast(list[MacroEvent], loaded)
 
-    def get_events_since(self, start_index: int):
+    def get_events_since(self, start_index: int) -> tuple[list[MacroEvent], int]:
         """Return a thread-safe slice of events since start_index and current count.
 
         Args:

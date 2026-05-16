@@ -6,12 +6,13 @@ Provides both GUI and CLI interfaces.
 
 import sys
 import argparse
+
 from PyQt6.QtWidgets import QApplication
 from .MacroGUI import MacroGUI
 from .MacroApp import MacroApp
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Macro Recorder and Player")
     parser.add_argument(
         "--cli", action="store_true", help="Run in CLI mode (default is GUI mode)"

@@ -4,16 +4,21 @@ Provides mouse/keyboard playback with loop control and defensive handling
 for malformed events.
 """
 
-import time
 import logging
+import time
+from collections.abc import Iterable
+from typing import Any, cast
+
 from pynput.mouse import Button, Controller as MouseController
 from pynput.keyboard import Key, Controller as KeyboardController
+
+from ._types import MacroEvent
 
 
 class MacroPlayer:
     """Plays back recorded macro events using pynput controllers."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.mouse = MouseController()
         self.keyboard = KeyboardController()
         self.playing = False
@@ -21,7 +26,13 @@ class MacroPlayer:
         self.current_loop = 0
         self.total_loops = 0  # -1 for infinite
 
-    def play_macro(self, events, loops=1, speed=1.0, max_idle_time=None):
+    def play_macro(
+        self,
+        events: Iterable[MacroEvent],
+        loops: int = 1,
+        speed: float = 1.0,
+        max_idle_time: float | None = None,
+    ) -> None:
         """Play a list of recorded events.
 
         - events: iterable of event dicts with 'type' and 'time' fields
@@ -38,19 +49,19 @@ class MacroPlayer:
         self.total_loops = loops
 
         # Find the recording end time from __stop_request__ event (if present)
-        recording_end_time = None
+        recording_end_time: float | None = None
         for event in events:
             if event.get("type") == "__stop_request__":
                 t = event.get("time")
                 if isinstance(t, (int, float)):
-                    recording_end_time = t
+                    recording_end_time = float(t)
                 break
 
         loop_count = 0
         while (loops == -1 or loop_count < loops) and not self.stop_flag:
             # Update loop index at the beginning of each iteration so UI shows 1-based progress
             self.current_loop = loop_count + 1
-            last_time = 0
+            last_time = 0.0
 
             for event in events:
                 if self.stop_flag:
@@ -66,6 +77,7 @@ class MacroPlayer:
                 event_time = event.get("time")
                 if not isinstance(event_time, (int, float)):
                     continue
+                event_time = float(event_time)
 
                 # Wait for the appropriate time
                 wait_time = (event_time - last_time) / speed
@@ -95,7 +107,7 @@ class MacroPlayer:
 
         self.playing = False
 
-    def execute_event(self, event):
+    def execute_event(self, event: MacroEvent) -> None:
         """Execute a single event dict if it contains required fields."""
         event_type = event.get("type", "")
 
@@ -103,14 +115,14 @@ class MacroPlayer:
             x = event.get("x")
             y = event.get("y")
             if isinstance(x, (int, float)) and isinstance(y, (int, float)):
-                self.mouse.position = (x, y)
+                self.mouse.position = cast(tuple[int, int], (x, y))
             else:
                 logging.debug("mouse_move missing/invalid coordinates; skipping")
 
         elif event_type == "mouse_click":
             button_str = event.get("button")
             pressed = event.get("pressed")
-            if button_str is None or pressed is None:
+            if not isinstance(button_str, str) or not isinstance(pressed, bool):
                 logging.debug("mouse_click missing button/pressed; skipping")
                 return
             button = self.parse_button(button_str)
@@ -126,11 +138,11 @@ class MacroPlayer:
                 dx = 0
             if not isinstance(dy, (int, float)):
                 dy = 0
-            self.mouse.scroll(dx, dy)
+            self.mouse.scroll(cast(int, dx), cast(int, dy))
 
         elif event_type == "key_press":
             key_str = event.get("key")
-            if key_str is None:
+            if not isinstance(key_str, str):
                 logging.debug("key_press missing key; skipping")
                 return
             key = self.parse_key(key_str)
@@ -138,13 +150,13 @@ class MacroPlayer:
 
         elif event_type == "key_release":
             key_str = event.get("key")
-            if key_str is None:
+            if not isinstance(key_str, str):
                 logging.debug("key_release missing key; skipping")
                 return
             key = self.parse_key(key_str)
             self.keyboard.release(key)
 
-    def parse_button(self, button_str):
+    def parse_button(self, button_str: str) -> Button:
         """Map a recorded button string to a pynput Button."""
         if "left" in button_str.lower():
             return Button.left
@@ -154,7 +166,7 @@ class MacroPlayer:
             return Button.middle
         return Button.left
 
-    def parse_key(self, key_str):
+    def parse_key(self, key_str: str) -> Any:
         """Map a recorded key string to a pynput Key or plain string."""
         # Handle special keys
         if key_str.startswith("Key."):
@@ -162,6 +174,6 @@ class MacroPlayer:
             return getattr(Key, key_name, key_str)
         return key_str
 
-    def stop_playback(self):
+    def stop_playback(self) -> None:
         """Signal the playback loop to stop after the current event."""
         self.stop_flag = True

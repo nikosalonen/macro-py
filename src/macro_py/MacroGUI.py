@@ -11,6 +11,10 @@ import logging
 import multiprocessing as mp
 import threading
 import json
+from typing import Any
+from multiprocessing.queues import Queue as MpQueue
+from multiprocessing.synchronize import Event as MpEvent
+
 from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -33,10 +37,29 @@ from PyQt6.QtCore import Qt, QTimer, QSize, QAbstractListModel, QModelIndex
 from PyQt6.QtGui import QKeySequence, QAction, QColor, QPalette, QIntValidator
 from PyQt6.QtWidgets import QStyledItemDelegate
 from .MacroApp import MacroApp
+from ._types import MacroEvent
 from pynput import keyboard
 
+EventNumber = int | float
 
-def _f5_hotkey_subprocess(stop_signal_queue, stop_event):
+
+def _event_number(event: MacroEvent, key: str, default: EventNumber = 0) -> EventNumber:
+    value = event.get(key)
+    if isinstance(value, (int, float)):
+        return value
+    return default
+
+
+def _event_text(event: MacroEvent, key: str, default: str = "unknown") -> str:
+    value = event.get(key)
+    if isinstance(value, str):
+        return value
+    if value is None:
+        return default
+    return str(value)
+
+
+def _f5_hotkey_subprocess(stop_signal_queue: MpQueue[str], stop_event: MpEvent) -> None:
     """
     Subprocess function to listen for F5 key press on macOS.
 
@@ -53,7 +76,7 @@ def _f5_hotkey_subprocess(stop_signal_queue, stop_event):
     # Set up logging for subprocess
     logger = logging.getLogger(__name__)
 
-    def on_key_press(key):
+    def on_key_press(key: Any) -> None:
         try:
             if key == kb.Key.f5:
                 # Send stop signal to main process with timeout
@@ -74,7 +97,7 @@ def _f5_hotkey_subprocess(stop_signal_queue, stop_event):
         except Exception:
             logger.exception("F5 hotkey subprocess: Unexpected error in on_key_press")
 
-    listener = None
+    listener: Any | None = None
     try:
         listener = kb.Listener(on_press=on_key_press)
         listener.start()
@@ -108,29 +131,31 @@ class EventLogModel(QAbstractListModel):
     to a QTextEdit widget.
     """
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: Any | None = None) -> None:
         super().__init__(parent)
-        self._events = []
-        self._formatted_cache = []
-        self.last_mouse_pos = None
+        self._events: list[MacroEvent] = []
+        self._formatted_cache: list[str] = []
+        self.last_mouse_pos: tuple[EventNumber, EventNumber] | None = None
         self.mouse_move_count = 0
 
-    def rowCount(self, parent=QModelIndex()):
+    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
         """Return the number of events in the model."""
         return len(self._events)
 
-    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+    def data(
+        self, index: QModelIndex, role: int = int(Qt.ItemDataRole.DisplayRole)
+    ) -> object | None:
         """Return formatted event data for the given index."""
         if not index.isValid() or index.row() >= len(self._events):
             return None
 
-        if role == Qt.ItemDataRole.DisplayRole:
+        if role == int(Qt.ItemDataRole.DisplayRole):
             # Return cached formatted string
             return self._formatted_cache[index.row()]
 
         return None
 
-    def add_event(self, event):
+    def add_event(self, event: MacroEvent) -> bool:
         """Add a new event to the model.
 
         Args:
@@ -166,7 +191,7 @@ class EventLogModel(QAbstractListModel):
         self._formatted_cache.append(message)
         self.endInsertRows()
 
-    def clear_events(self):
+    def clear_events(self) -> None:
         """Clear all events from the model."""
         if not self._events:
             return
@@ -178,7 +203,7 @@ class EventLogModel(QAbstractListModel):
         self.mouse_move_count = 0
         self.endResetModel()
 
-    def _format_event(self, event):
+    def _format_event(self, event: MacroEvent) -> str | None:
         """Format a single event for display in the log.
 
         Args:
@@ -187,11 +212,11 @@ class EventLogModel(QAbstractListModel):
         Returns:
             str: Formatted event string, or None to filter out this event
         """
-        event_type = event.get("type", "unknown")
-        timestamp = f"{event.get('time', 0):.3f}s"
+        event_type = _event_text(event, "type")
+        timestamp = f"{_event_number(event, 'time'):.3f}s"
 
         if event_type == "mouse_move":
-            x, y = event.get("x", 0), event.get("y", 0)
+            x, y = _event_number(event, "x"), _event_number(event, "y")
             # Reduce spam by only showing significant mouse movements
             if self.last_mouse_pos is None or (
                 abs(x - self.last_mouse_pos[0]) > 10
@@ -203,22 +228,22 @@ class EventLogModel(QAbstractListModel):
             return None  # Skip this event
 
         elif event_type == "mouse_click":
-            button = event.get("button", "unknown")
+            button = _event_text(event, "button")
             action = "Press" if event.get("pressed") else "Release"
-            x, y = event.get("x", 0), event.get("y", 0)
+            x, y = _event_number(event, "x"), _event_number(event, "y")
             return f"🖱️  [{timestamp}] Mouse {action} → {button} at ({x}, {y})"
 
         elif event_type == "mouse_scroll":
-            dx, dy = event.get("dx", 0), event.get("dy", 0)
-            x, y = event.get("x", 0), event.get("y", 0)
+            dx, dy = _event_number(event, "dx"), _event_number(event, "dy")
+            x, y = _event_number(event, "x"), _event_number(event, "y")
             return f"🖱️  [{timestamp}] Mouse Scroll → ({dx}, {dy}) at ({x}, {y})"
 
         elif event_type == "key_press":
-            key = event.get("key", "unknown")
+            key = _event_text(event, "key")
             return f"⌨️  [{timestamp}] Key Press → {key}"
 
         elif event_type == "key_release":
-            key = event.get("key", "unknown")
+            key = _event_text(event, "key")
             return f"⌨️  [{timestamp}] Key Release → {key}"
 
         else:
@@ -228,7 +253,7 @@ class EventLogModel(QAbstractListModel):
 class EventLogDelegate(QStyledItemDelegate):
     """Custom delegate for rendering event log items with enhanced styling."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: Any | None = None) -> None:
         super().__init__(parent)
         # Define colors for different event types
         self.mouse_color = QColor("#4A9EFF")  # Blue for mouse events
@@ -236,13 +261,13 @@ class EventLogDelegate(QStyledItemDelegate):
         self.system_color = QColor("#FFB84D")  # Orange for system messages
         self.unknown_color = QColor("#FF6B6B")  # Red for unknown events
 
-    def initStyleOption(self, option, index):
+    def initStyleOption(self, option: Any, index: QModelIndex) -> None:
         """Initialize style options with custom colors based on event type."""
         super().initStyleOption(option, index)
 
         # Get the display text to determine event type
         text = index.data(Qt.ItemDataRole.DisplayRole)
-        if text:
+        if isinstance(text, str):
             # Color code based on emoji/event type
             if text.startswith("🖱️"):
                 option.palette.setColor(
@@ -272,7 +297,7 @@ class EventLogDelegate(QStyledItemDelegate):
 class MacroGUI(QMainWindow):
     """Main window for recording and playback controls with logging."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.app = MacroApp()
         self.setWindowTitle("Macro Recorder")
@@ -371,21 +396,21 @@ class MacroGUI(QMainWindow):
         self.was_hidden_for_recording = False
         self._restore_on_top_after_record = False
         self._restore_on_top_after_play = False
-        self._play_hotkey_listener = None
-        self.prev_front_app_name = None
+        self._play_hotkey_listener: Any | None = None
+        self.prev_front_app_name: str | None = None
 
         # Subprocess components for F5 hotkey on macOS
-        self._f5_subprocess = None
-        self._f5_stop_event = None
-        self._f5_signal_queue = None
-        self._f5_consumer_thread = None
-        self._f5_consumer_stop_event = None
+        self._f5_subprocess: Any | None = None
+        self._f5_stop_event: MpEvent | None = None
+        self._f5_signal_queue: MpQueue[str] | None = None
+        self._f5_consumer_thread: threading.Thread | None = None
+        self._f5_consumer_stop_event: threading.Event | None = None
 
         # Timer for updating playback progress in the status bar
         self.play_progress_timer = QTimer()
         self.play_progress_timer.timeout.connect(self.update_play_progress)
 
-    def _build_toolbar(self):
+    def _build_toolbar(self) -> None:
         """Create the main toolbar and wire up actions and shortcuts."""
         toolbar = QToolBar("Main")
         toolbar.setMovable(False)
@@ -468,7 +493,7 @@ class MacroGUI(QMainWindow):
         self.action_help.triggered.connect(self._show_help)
         toolbar.addAction(self.action_help)
 
-    def setup_ui(self, layout):
+    def setup_ui(self, layout: QVBoxLayout) -> None:
         """Build compact central controls, options panel, and shortcuts strip."""
         # Compact playback row
         playback_row = QHBoxLayout()
@@ -551,7 +576,7 @@ class MacroGUI(QMainWindow):
         shortcuts_layout.addWidget(shortcuts_label)
         layout.addWidget(self.shortcuts_group)
 
-    def start_recording_gui(self):
+    def start_recording_gui(self) -> None:
         """Start recording and update UI/log state accordingly."""
         if not self.app.recorder.recording and not self.app.player.playing:
             try:
@@ -627,7 +652,7 @@ class MacroGUI(QMainWindow):
                 "Cannot start recording - already recording or playing"
             )
 
-    def stop_recording_gui(self):
+    def stop_recording_gui(self) -> None:
         """Stop recording and restore window/topmost state if needed."""
         if self.app.recorder.recording:
             self.app.stop_recording()
@@ -657,7 +682,7 @@ class MacroGUI(QMainWindow):
         else:
             self.status_bar.showMessage("Not currently recording")
 
-    def play_once_gui(self):
+    def play_once_gui(self) -> None:
         """Prepare and play current macro once."""
         if self.app.macro_data and not self.app.player.playing:
             # Prepare UI and hotkeys
@@ -673,7 +698,7 @@ class MacroGUI(QMainWindow):
         else:
             self.status_bar.showMessage("No macro to play or already playing")
 
-    def play_infinite_gui(self):
+    def play_infinite_gui(self) -> None:
         """Prepare and play current macro in infinite loop until stopped."""
         if self.app.macro_data and not self.app.player.playing:
             # Prepare UI and hotkeys
@@ -689,7 +714,7 @@ class MacroGUI(QMainWindow):
         else:
             self.status_bar.showMessage("No macro to play or already playing")
 
-    def stop_playback_gui(self):
+    def stop_playback_gui(self) -> None:
         """Stop playback, clean up hotkeys, and restore window state."""
         if self.app.player.playing:
             self.app.stop_playback()
@@ -700,7 +725,7 @@ class MacroGUI(QMainWindow):
         else:
             self.status_bar.showMessage("Not currently playing")
 
-    def play_x(self):
+    def play_x(self) -> None:
         """Play current macro a user-specified number of loops."""
         try:
             loops = int(self.loop_entry.text())
@@ -720,7 +745,7 @@ class MacroGUI(QMainWindow):
         except ValueError:
             self.status_bar.showMessage("Invalid loop count")
 
-    def update_play_progress(self):
+    def update_play_progress(self) -> None:
         """Update loop progress in the status bar; restore window when finished."""
         player = self.app.player
         if not player.playing:
@@ -736,7 +761,7 @@ class MacroGUI(QMainWindow):
         else:
             self.status_bar.showMessage(f"🔄 Running {current}/{total} loops")
 
-    def save_macro(self):
+    def save_macro(self) -> None:
         """Save the current macro to a JSON file chosen by the user."""
         filename, _ = QFileDialog.getSaveFileName(
             self, "Save Macro", "", "JSON files (*.json)"
@@ -748,7 +773,7 @@ class MacroGUI(QMainWindow):
                 json.dump(list(self.app.macro_data or []), f, indent=2)
             self.status_bar.showMessage(f"Saved to {filename}")
 
-    def load_macro(self):
+    def load_macro(self) -> None:
         """Load a macro from a JSON file chosen by the user."""
         filename, _ = QFileDialog.getOpenFileName(
             self, "Load Macro", "", "JSON files (*.json)"
@@ -759,7 +784,7 @@ class MacroGUI(QMainWindow):
                 self.app.macro_data = self.app.recorder.events.copy()
             self.status_bar.showMessage(f"Loaded {len(self.app.macro_data)} events")
 
-    def update_log(self):
+    def update_log(self) -> None:
         """Update the log console with new events in real-time"""
         if not self.app.recorder.recording:
             return
@@ -787,7 +812,7 @@ class MacroGUI(QMainWindow):
 
             self.last_event_count = current_count
 
-    def toggle_log_console(self):
+    def toggle_log_console(self) -> None:
         """Toggle the visibility of the log console"""
         if self.log_section.isVisible():
             self.log_section.hide()
@@ -802,13 +827,13 @@ class MacroGUI(QMainWindow):
             self.toggle_log_action.setChecked(True)
             self.toggle_log_action.blockSignals(False)
 
-    def clear_log(self):
+    def clear_log(self) -> None:
         """Clear the log console"""
         self.log_model.clear_events()
         if not self.app.recorder.recording:
             self._log_append("📝 Log Cleared - Ready for recording")
 
-    def _log_append(self, message):
+    def _log_append(self, message: str) -> None:
         """Append a message to the log console.
 
         Args:
@@ -818,11 +843,11 @@ class MacroGUI(QMainWindow):
         # Auto-scroll to bottom
         self.log_console.scrollToBottom()
 
-    def _log_clear(self):
+    def _log_clear(self) -> None:
         """Clear the log console completely."""
         self.log_model.clear_events()
 
-    def capture_prev_front_app(self):
+    def capture_prev_front_app(self) -> None:
         """Capture the currently frontmost app (macOS) to reactivate later when recording starts."""
         if sys.platform != "darwin":
             return
@@ -843,7 +868,7 @@ class MacroGUI(QMainWindow):
         except Exception:
             pass
 
-    def activate_previous_app(self):
+    def activate_previous_app(self) -> None:
         """Reactivate the previously frontmost application on macOS.
 
         Falls back to a single Cmd+Tab if the previous name is unknown.
@@ -873,7 +898,7 @@ class MacroGUI(QMainWindow):
         except Exception:
             pass
 
-    def on_always_on_top_toggled(self, checked):
+    def on_always_on_top_toggled(self, checked: bool) -> None:
         """Apply the always-on-top flag and re-show the window to take effect."""
         was_visible = self.isVisible()
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, checked)
@@ -881,7 +906,7 @@ class MacroGUI(QMainWindow):
         if was_visible:
             self.show()
 
-    def _toggle_log_from_action(self, checked):
+    def _toggle_log_from_action(self, checked: bool) -> None:
         # Reflect action state to the console visibility
         if checked:
             if not self.log_section.isVisible():
@@ -898,12 +923,12 @@ class MacroGUI(QMainWindow):
             self.toggle_log_action.setChecked(False)
             self.toggle_log_action.blockSignals(False)
 
-    def _toggle_options_panel(self, checked):
+    def _toggle_options_panel(self, checked: bool) -> None:
         """Show or hide the advanced options pane."""
         if hasattr(self, "options_group"):
             self.options_group.setVisible(bool(checked))
 
-    def _show_help(self):
+    def _show_help(self) -> None:
         """Display a small dialog with keyboard shortcuts."""
         QMessageBox.information(
             self,
@@ -914,13 +939,18 @@ class MacroGUI(QMainWindow):
             "F5 - Stop Playback",
         )
 
-    def _f5_signal_consumer(self):
+    def _f5_signal_consumer(self) -> None:
         """Thread that monitors the F5 signal queue from subprocess."""
         import queue
 
-        while not self._f5_consumer_stop_event.is_set():
+        consumer_stop_event = self._f5_consumer_stop_event
+        signal_queue = self._f5_signal_queue
+        if consumer_stop_event is None or signal_queue is None:
+            return
+
+        while not consumer_stop_event.is_set():
             try:
-                signal = self._f5_signal_queue.get(timeout=0.1)
+                signal = signal_queue.get(timeout=0.1)
                 if signal == "STOP":
                     # Schedule stop on the Qt main thread
                     QTimer.singleShot(0, self.stop_playback_gui)
@@ -936,7 +966,7 @@ class MacroGUI(QMainWindow):
                 logging.exception("F5 consumer thread: Unexpected error")
                 break
 
-    def _start_playback_hotkeys(self):
+    def _start_playback_hotkeys(self) -> None:
         """Start a global listener that maps F5 to stop playback."""
         # Check if already running
         if self._play_hotkey_listener is not None or self._f5_subprocess is not None:
@@ -970,7 +1000,7 @@ class MacroGUI(QMainWindow):
                 self._cleanup_f5_subprocess()
         else:
             # Windows/Linux: use in-process listener (no CGEventTap conflict)
-            def on_key_press(key):
+            def on_key_press(key: Any) -> None:
                 try:
                     if key == keyboard.Key.f5:
                         # Schedule stop on the Qt main thread
@@ -986,15 +1016,16 @@ class MacroGUI(QMainWindow):
                 logging.warning("Failed to start global hotkey listener: %s", e)
                 self._play_hotkey_listener = None
 
-    def _cleanup_f5_subprocess(self):
+    def _cleanup_f5_subprocess(self) -> None:
         """Clean up the F5 hotkey subprocess and associated resources."""
         # Stop consumer thread
         if self._f5_consumer_stop_event is not None:
             self._f5_consumer_stop_event.set()
-        if self._f5_consumer_thread is not None and self._f5_consumer_thread.is_alive():
-            self._f5_consumer_thread.join(timeout=1.0)
-        if self._f5_consumer_thread.is_alive():
-            logging.warning("F5 consumer thread did not stop within timeout")
+        consumer_thread = self._f5_consumer_thread
+        if consumer_thread is not None and consumer_thread.is_alive():
+            consumer_thread.join(timeout=1.0)
+            if consumer_thread.is_alive():
+                logging.warning("F5 consumer thread did not stop within timeout")
         # Stop subprocess with verification
         if self._f5_stop_event is not None:
             self._f5_stop_event.set()
@@ -1013,7 +1044,11 @@ class MacroGUI(QMainWindow):
                 if hasattr(os, "kill") and hasattr(self._f5_subprocess, "pid"):
                     # POSIX systems
                     try:
-                        os.kill(self._f5_subprocess.pid, signal.SIGKILL)
+                        sigkill = getattr(signal, "SIGKILL", None)
+                        if sigkill is None:
+                            self._f5_subprocess.kill()
+                        else:
+                            os.kill(self._f5_subprocess.pid, sigkill)
                     except OSError, ProcessLookupError:
                         pass  # Process already terminated
                 else:
@@ -1052,7 +1087,7 @@ class MacroGUI(QMainWindow):
         self._f5_consumer_thread = None
         self._f5_consumer_stop_event = None
 
-    def _stop_playback_hotkeys(self):
+    def _stop_playback_hotkeys(self) -> None:
         """Stop and clear the global F5 playback stop listener if present."""
         # macOS subprocess
         if self._f5_subprocess is not None:
@@ -1070,7 +1105,7 @@ class MacroGUI(QMainWindow):
             finally:
                 self._play_hotkey_listener = None
 
-    def _cleanup_after_playback(self):
+    def _cleanup_after_playback(self) -> None:
         # Beep to signal completion and stop any global hotkey listener
         try:
             QApplication.beep()
@@ -1086,7 +1121,7 @@ class MacroGUI(QMainWindow):
             self.raise_()
             self.activateWindow()
 
-    def _prepare_for_playback(self):
+    def _prepare_for_playback(self) -> None:
         """Lower window, manage top-most state, and enable F5 stop hotkey."""
         # Parse max idle time from GUI and pass to app
         max_idle_text = self.max_idle_entry.text().strip()
@@ -1109,7 +1144,7 @@ class MacroGUI(QMainWindow):
             self.lower()
         self._start_playback_hotkeys()
 
-    def _start_recording_delayed(self):
+    def _start_recording_delayed(self) -> None:
         """Start recording after PyQt6 event loop is fully initialized"""
         try:
             self.app.start_recording()
@@ -1149,7 +1184,7 @@ class MacroGUI(QMainWindow):
                 self.was_hidden_for_recording = False
                 self.show()
 
-    def closeEvent(self, event):
+    def closeEvent(self, event: Any) -> None:
         """Handle application exit by cleaning up subprocess and threads."""
         # Stop playback if active
         if self.app.player.playing:
@@ -1171,7 +1206,7 @@ class MacroGUI(QMainWindow):
         # Accept the close event
         event.accept()
 
-    def run(self):
+    def run(self) -> None:
         """Capture previous app (macOS) and show the GUI window."""
         # Don't setup global hotkeys in GUI mode - they conflict with PyQt6
         # Capture the app currently in front, so we can reactivate it when we hide ourselves

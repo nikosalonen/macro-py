@@ -4,28 +4,30 @@ Provides CLI-mode hotkeys and bridges between the recorder and player.
 """
 
 import time
+from typing import Any
 from threading import Thread
 from pynput import keyboard
 from .MacroRecorder import MacroRecorder
 from .MacroPlayer import MacroPlayer
+from ._types import MacroEvent
 
 
 class MacroApp:
     """High-level controller that manages recorder/player and hotkeys."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.recorder = MacroRecorder()
         self.player = MacroPlayer()
-        self.macro_data = []
-        self.hotkey_listener = None
+        self.macro_data: list[MacroEvent] = []
+        self.hotkey_listener: Any | None = None
         self.running = True
-        self.max_idle_time = None  # Max seconds between events (None = no limit)
+        self.max_idle_time: float | None = None  # Max seconds between events
 
-    def setup_hotkeys(self):
+    def setup_hotkeys(self) -> None:
         """Configure global hotkeys for CLI mode (not used by GUI)."""
 
         # Global hotkeys with pynput
-        def on_key_press(key):
+        def on_key_press(key: Any) -> None:
             try:
                 if key == keyboard.Key.f1:
                     self.start_recording()
@@ -46,7 +48,7 @@ class MacroApp:
         self.hotkey_listener = keyboard.Listener(on_press=on_key_press)
         self.hotkey_listener.start()
 
-    def start_recording(self):
+    def start_recording(self) -> None:
         """Start recording if not already recording or playing."""
         print("🔍 [DEBUG] MacroApp.start_recording called")
         if not self.recorder.recording and not self.player.playing:
@@ -61,7 +63,7 @@ class MacroApp:
                 "🔍 [DEBUG] Cannot start recording in MacroApp - already recording or playing"
             )
 
-    def stop_recording(self):
+    def stop_recording(self) -> None:
         """Stop recording and capture recorded events into macro_data."""
         if self.recorder.recording:
             print("⏹️ Recording stopped")
@@ -79,14 +81,18 @@ class MacroApp:
                     and isinstance(e.get("time"), (int, float))
                 ]
                 if timed_events:
-                    first_time = timed_events[0].get("time", 0)
-                    last_time = timed_events[-1].get("time", 0)
+                    first_time = timed_events[0]["time"]
+                    last_time = timed_events[-1]["time"]
+                    if not isinstance(first_time, (int, float)) or not isinstance(
+                        last_time, (int, float)
+                    ):
+                        return
                     duration = last_time - first_time
                     print(
                         f"⏱️ Timing: first={first_time:.2f}s, last={last_time:.2f}s, duration={duration:.2f}s"
                     )
 
-    def play_once(self):
+    def play_once(self) -> None:
         """Play current macro once."""
         if self.macro_data and not self.player.playing:
             print("▶️ Playing macro once...")
@@ -96,7 +102,7 @@ class MacroApp:
                 kwargs={"max_idle_time": self.max_idle_time},
             ).start()
 
-    def play_infinite(self):
+    def play_infinite(self) -> None:
         """Play current macro in an infinite loop (F5 to stop)."""
         if self.macro_data and not self.player.playing:
             print("🔁 Playing macro infinitely (F5 to stop)...")
@@ -106,7 +112,7 @@ class MacroApp:
                 kwargs={"max_idle_time": self.max_idle_time},
             ).start()
 
-    def play_x_times(self, times):
+    def play_x_times(self, times: int) -> None:
         """Play current macro a fixed number of times."""
         if self.macro_data and not self.player.playing:
             print(f"🔄 Playing macro {times} times...")
@@ -116,13 +122,13 @@ class MacroApp:
                 kwargs={"max_idle_time": self.max_idle_time},
             ).start()
 
-    def stop_playback(self):
+    def stop_playback(self) -> None:
         """Stop playback if currently playing."""
         if self.player.playing:
             print("⏹️ Playback stopped")
             self.player.stop_playback()
 
-    def save_current_macro(self):
+    def save_current_macro(self) -> None:
         """Save current macro to a timestamped JSON file (CLI mode)."""
         if self.macro_data:
             filename = f"macro_{int(time.time())}.json"
@@ -130,7 +136,7 @@ class MacroApp:
             self.recorder.save_macro(filename)
             print(f"💾 Saved to {filename}")
 
-    def load_macro_file(self):
+    def load_macro_file(self) -> None:
         """Load a macro from a JSON file path entered by the user (CLI mode)."""
         # In a real app, you'd have a file dialog here
         filename = input("Enter macro filename: ")
@@ -141,7 +147,7 @@ class MacroApp:
         except Exception as e:
             print(f"Error loading file: {e}")
 
-    def run(self):
+    def run(self) -> None:
         """Run CLI loop with global hotkeys until exit."""
         self.setup_hotkeys()
         print("""
