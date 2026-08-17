@@ -34,8 +34,9 @@ Hotkeys
 - `F1` start recording
 - `F2` stop recording
 - `F3` play once
-- `F4` play forever (CLI only)
+- `F4` play forever
 - `F5` stop playback
+- `Ctrl+Shift+S` / `Ctrl+Shift+L` save / load macro (CLI only)
 - `Esc` exit CLI
 
 Recording Flow
@@ -72,4 +73,4 @@ Development
 - Install extras: `uv sync --extra dev`
 - Code style: `uv run black .` (line length 88).
 - Static checks: `uv run flake8` and `uv run mypy --strict`.
-- Tests (placeholder): `uv run pytest -v` (no tests yet, this command currently reports “no tests collected”).
+- Tests: `uv run pytest -v`

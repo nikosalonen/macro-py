@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-macro-py is a cross-platform macro recorder and player for macOS and Windows. It captures keyboard and mouse events using `pynput` and replays them on demand. The package provides both a PyQt5 GUI and a CLI mode that share the same core engine.
+macro-py is a cross-platform macro recorder and player for macOS and Windows. It captures keyboard and mouse events using `pynput` and replays them on demand. The package provides both a PyQt6 GUI and a CLI mode that share the same core engine.
 
 ## Development Commands
 
@@ -38,7 +38,6 @@ uv run mypy --strict
 
 # Run tests
 uv run pytest -v
-# Note: Test suite is currently a placeholder with no tests implemented
 ```
 
 ## Architecture
@@ -64,12 +63,10 @@ The codebase is organized into separate, focused modules under `src/macro_py/`:
    - Manages application state and threading for playback
    - Provides save/load functionality
 
-4. **MacroGUI** (`MacroGUI.py`) - PyQt5 graphical interface
-   - Primary GUI using PyQt5 with advanced logging and event display
-   - Hides window during recording to avoid capturing UI interactions
-   - Alternative implementations available:
-     - `MacroGUI_tkinter.py` - Tkinter fallback if PyQt5 unavailable
-     - `MacroGUI_pyqt5_backup.py` - Lighter PyQt5 version without logging
+4. **MacroGUI** (`MacroGUI.py`) - PyQt6 graphical interface
+   - Primary GUI using PyQt6 with advanced logging and event display
+   - Backgrounds its window during recording to avoid capturing UI interactions
+   - Persists UI options (geometry, loops, speed, toggles) via QSettings
 
 ### Platform-Specific Behavior
 
@@ -90,16 +87,16 @@ Events are dictionaries with these fields:
 - F1: Start recording
 - F2: Stop recording
 - F3: Play once
-- F4: Play forever (CLI only)
+- F4: Play forever
 - F5: Stop playback
+- Ctrl+Shift+S / Ctrl+Shift+L: Save / load macro (CLI only)
 - Esc: Exit (CLI only)
 
 ## Known Issues
 
-- No test suite currently implemented (pytest reports "no tests collected")
 - macOS requires Accessibility permissions (System Settings → Privacy & Security → Accessibility)
 - Windows may require Administrator privileges for hooks
-- PyQt5 conflicts with CLI global shortcuts, so they're disabled when GUI is open
+- PyQt6 conflicts with CLI global shortcuts, so they're disabled when GUI is open
 
 ## File Persistence
 
