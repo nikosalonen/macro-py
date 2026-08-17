@@ -11,7 +11,7 @@ from .MacroGUI import MacroGUI
 from .MacroApp import MacroApp
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Macro Recorder and Player")
     parser.add_argument(
         "--cli", action="store_true", help="Run in CLI mode (default is GUI mode)"
