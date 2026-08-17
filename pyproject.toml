@@ -36,6 +36,7 @@ dev = [
     "black>=23.0.0",
     "flake8>=6.0.0",
     "mypy>=1.0.0",
+    "types-pynput>=1.8.1.20260712",
 ]
 
 [project.urls]
@@ -59,6 +60,7 @@ python_version = "3.12"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
+files = ["src/macro_py", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
