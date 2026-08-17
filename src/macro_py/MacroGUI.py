@@ -467,10 +467,12 @@ class MacroGUI(QMainWindow):
             self.speed_spin.setValue(float(s.value("speed", 1.0)))
         except (TypeError, ValueError):
             self.speed_spin.setValue(1.0)
+        # Key renamed from "countdown" (which briefly shipped with a
+        # surprising default of 3) so stale values don't delay recording.
         try:
-            self.countdown_spin.setValue(int(s.value("countdown", 3)))
+            self.countdown_spin.setValue(int(s.value("countdownSeconds", 0)))
         except (TypeError, ValueError):
-            self.countdown_spin.setValue(3)
+            self.countdown_spin.setValue(0)
         self.compress_moves_checkbox.setChecked(s.value("compressMoves", True, bool))
         self.activate_on_record_checkbox.setChecked(
             s.value("activateOnRecord", True, bool)
@@ -487,7 +489,7 @@ class MacroGUI(QMainWindow):
         s.setValue("loops", self.loop_entry.text())
         s.setValue("maxIdleMs", self.max_idle_entry.text())
         s.setValue("speed", self.speed_spin.value())
-        s.setValue("countdown", self.countdown_spin.value())
+        s.setValue("countdownSeconds", self.countdown_spin.value())
         s.setValue("compressMoves", self.compress_moves_checkbox.isChecked())
         s.setValue("activateOnRecord", self.activate_on_record_checkbox.isChecked())
         s.setValue("activateOnPlay", self.activate_on_play_checkbox.isChecked())
@@ -682,7 +684,7 @@ class MacroGUI(QMainWindow):
         options_layout.addWidget(QLabel("Countdown (s):"))
         self.countdown_spin = QSpinBox()
         self.countdown_spin.setRange(0, 10)
-        self.countdown_spin.setValue(3)
+        self.countdown_spin.setValue(0)
         self.countdown_spin.setToolTip(
             "Seconds to wait before recording/playback starts (0 = immediately)"
         )
