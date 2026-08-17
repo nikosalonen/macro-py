@@ -35,6 +35,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QSpinBox,
     QDoubleSpinBox,
+    QFrame,
 )
 from PyQt6.QtCore import (
     Qt,
@@ -50,6 +51,7 @@ from PyQt6.QtGui import (
     QAction,
     QCloseEvent,
     QColor,
+    QCursor,
     QPalette,
     QIntValidator,
 )
@@ -329,6 +331,74 @@ class EventLogDelegate(QStyledItemDelegate):
                 )
 
 
+class CountdownOverlay(QWidget):
+    """Frameless, click-through, always-on-top countdown display.
+
+    The main window is lowered while a pre-start countdown runs, so the
+    status bar is out of sight; this overlay keeps the remaining seconds
+    visible on screen. It is transparent to input and never takes focus,
+    so the app about to be recorded or played into stays active.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            None,
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.WindowDoesNotAcceptFocus
+            | Qt.WindowType.WindowTransparentForInput,
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+
+        frame = QFrame(self)
+        frame.setObjectName("countdownFrame")
+        frame.setStyleSheet("""
+            QFrame#countdownFrame {
+                background-color: rgba(20, 20, 20, 240);
+                border: 1px solid rgba(255, 255, 255, 60);
+                border-radius: 18px;
+            }
+            QLabel { color: #ffffff; background: transparent; }
+        """)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(frame)
+
+        inner = QVBoxLayout(frame)
+        inner.setContentsMargins(28, 20, 28, 20)
+        inner.setSpacing(4)
+
+        self.caption_label = QLabel("")
+        self.caption_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.caption_label.setStyleSheet("font-size: 14px; font-weight: 600;")
+        inner.addWidget(self.caption_label)
+
+        self.number_label = QLabel("")
+        self.number_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.number_label.setStyleSheet("font-size: 64px; font-weight: 700;")
+        inner.addWidget(self.number_label)
+
+    def show_countdown(self, caption: str, seconds: int) -> None:
+        """Show the overlay with the given caption and starting count."""
+        self.caption_label.setText(caption)
+        self.set_remaining(seconds)
+        self.show()
+
+    def set_remaining(self, seconds: int) -> None:
+        """Update the displayed count and keep the overlay centered."""
+        self.number_label.setText(str(seconds))
+        self.adjustSize()
+        self._center_on_cursor_screen()
+
+    def _center_on_cursor_screen(self) -> None:
+        screen = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
+        if screen is None:
+            return
+        geometry = screen.availableGeometry()
+        self.move(geometry.center() - self.rect().center())
+
+
 class MacroGUI(QMainWindow):
     """Main window for recording and playback controls with logging."""
 
@@ -449,6 +519,7 @@ class MacroGUI(QMainWindow):
         self.current_macro_path: str | None = None
         self.macro_dirty = False
         self._countdown_active = False
+        self._countdown_overlay = CountdownOverlay()
 
         # Persisted settings (geometry, options, last used directory)
         self._settings = QSettings("macro-py", "MacroRecorder")
@@ -521,20 +592,29 @@ class MacroGUI(QMainWindow):
             on_done()
             return
         self._countdown_active = True
+        self._countdown_overlay.show_countdown(label, seconds)
         remaining = {"n": seconds}
 
         def tick() -> None:
             if not self._countdown_active:
+                self._countdown_overlay.hide()
                 return
             if remaining["n"] <= 0:
                 self._countdown_active = False
+                self._countdown_overlay.hide()
                 on_done()
                 return
             self.status_bar.showMessage(f"{label} in {remaining['n']}…")
+            self._countdown_overlay.set_remaining(remaining["n"])
             remaining["n"] -= 1
             QTimer.singleShot(1000, tick)
 
         tick()
+
+    def _cancel_countdown(self) -> None:
+        """Abort a pending countdown and remove its overlay immediately."""
+        self._countdown_active = False
+        self._countdown_overlay.hide()
 
     def _build_toolbar(self) -> None:
         """Create the main toolbar and wire up actions and shortcuts."""
@@ -835,7 +915,7 @@ class MacroGUI(QMainWindow):
         """Stop recording and restore window/topmost state if needed."""
         # Cancel a pending recording countdown
         if self._countdown_active and not self.app.recorder.recording:
-            self._countdown_active = False
+            self._cancel_countdown()
             self.status_bar.showMessage("Recording cancelled")
             if self._restore_on_top_after_record:
                 self._restore_on_top_after_record = False
@@ -910,7 +990,7 @@ class MacroGUI(QMainWindow):
         """Stop playback, clean up hotkeys, and restore window state."""
         # Cancel a pending playback countdown
         if self._countdown_active and not self.app.player.playing:
-            self._countdown_active = False
+            self._cancel_countdown()
             self.status_bar.showMessage("⏹️ Playback cancelled")
             self._cleanup_after_playback()
             return
@@ -1415,7 +1495,8 @@ class MacroGUI(QMainWindow):
     def closeEvent(self, event: QCloseEvent | None) -> None:
         """Handle application exit by cleaning up subprocess and threads."""
         # Cancel any pending countdown and persist settings
-        self._countdown_active = False
+        self._cancel_countdown()
+        self._countdown_overlay.close()
         self._save_settings()
 
         # Stop playback if active
