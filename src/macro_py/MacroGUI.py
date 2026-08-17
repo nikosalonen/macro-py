@@ -62,6 +62,10 @@ if TYPE_CHECKING:
 
 Event = dict[str, Any]
 
+# Virtual key codes for F5 used for OS-level suppression of the stop hotkey
+F5_KEYCODE_MACOS = 96
+F5_VKCODE_WINDOWS = 0x74
+
 
 def _f5_hotkey_subprocess(
     stop_signal_queue: mp.Queue[str], stop_event: MpEvent
@@ -103,9 +107,29 @@ def _f5_hotkey_subprocess(
         except Exception:
             logger.exception("F5 hotkey subprocess: Unexpected error in on_key_press")
 
+    def darwin_intercept(event_type: int, event: Any) -> Any:
+        """Swallow F5 at the event-tap level so the focused app never sees it.
+
+        Without this the keystroke still reaches the frontmost app (e.g. a
+        browser refreshing the page) even though playback stops. Returning
+        None suppresses the event system-wide; our on_press callback has
+        already run by then.
+        """
+        try:
+            import Quartz
+
+            keycode = Quartz.CGEventGetIntegerValueField(
+                event, Quartz.kCGKeyboardEventKeycode
+            )
+            if keycode == F5_KEYCODE_MACOS:
+                return None
+        except Exception:
+            logger.exception("F5 hotkey subprocess: Error in darwin_intercept")
+        return event
+
     listener: kb.Listener | None = None
     try:
-        listener = kb.Listener(on_press=on_key_press)
+        listener = kb.Listener(on_press=on_key_press, darwin_intercept=darwin_intercept)
         listener.start()
         logger.debug("F5 hotkey subprocess: Listener started")
 
@@ -1194,8 +1218,22 @@ class MacroGUI(QMainWindow):
                 except Exception:
                     logging.exception("Error in global hotkey on_key_press handler")
 
+            def win32_event_filter(msg: int, data: Any) -> bool:
+                # Windows only (ignored on Linux): swallow F5 so the focused
+                # app doesn't also react (e.g. a browser refreshing the page).
+                # suppress_event() raises to signal suppression and skips
+                # on_press, so schedule the stop here and don't catch it.
+                if getattr(data, "vkCode", None) == F5_VKCODE_WINDOWS:
+                    QTimer.singleShot(0, self.stop_playback_gui)
+                    listener = self._play_hotkey_listener
+                    if listener is not None:
+                        listener.suppress_event()
+                return True
+
             try:
-                self._play_hotkey_listener = keyboard.Listener(on_press=on_key_press)
+                self._play_hotkey_listener = keyboard.Listener(
+                    on_press=on_key_press, win32_event_filter=win32_event_filter
+                )
                 self._play_hotkey_listener.start()
             except Exception as e:
                 # If listener fails, continue without global hotkey

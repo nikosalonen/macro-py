@@ -17,6 +17,10 @@ from .MacroPlayer import MacroPlayer
 
 Event = dict[str, Any]
 
+# Virtual key codes for F5 used for OS-level suppression of the stop hotkey
+F5_KEYCODE_MACOS = 96
+F5_VKCODE_WINDOWS = 0x74
+
 
 class MacroApp:
     """High-level controller that manages recorder/player and hotkeys."""
@@ -55,7 +59,41 @@ class MacroApp:
             except AttributeError:
                 pass
 
-        self.hotkey_listener = keyboard.Listener(on_press=on_key_press)
+        def darwin_intercept(event_type: int, event: Any) -> Any:
+            # macOS: while playing, swallow F5 at the event-tap level so the
+            # focused app doesn't also react (e.g. a browser refreshing the
+            # page). on_key_press has already run by the time this returns.
+            try:
+                import Quartz
+
+                keycode = Quartz.CGEventGetIntegerValueField(
+                    event, Quartz.kCGKeyboardEventKeycode
+                )
+                if keycode == F5_KEYCODE_MACOS and self.player.playing:
+                    return None
+            except Exception:
+                logging.exception("Error in darwin F5 intercept")
+            return event
+
+        def win32_event_filter(msg: int, data: Any) -> bool:
+            # Windows only (ignored on Linux): swallow F5 while playing.
+            # suppress_event() raises to signal suppression and skips
+            # on_key_press, so stop playback here and don't catch it.
+            if (
+                getattr(data, "vkCode", None) == F5_VKCODE_WINDOWS
+                and self.player.playing
+            ):
+                self.stop_playback()
+                if self.hotkey_listener is not None:
+                    # win32-only runtime method, absent from the stubs
+                    self.hotkey_listener.suppress_event()  # type: ignore[attr-defined]
+            return True
+
+        self.hotkey_listener = keyboard.Listener(
+            on_press=on_key_press,
+            darwin_intercept=darwin_intercept,
+            win32_event_filter=win32_event_filter,
+        )
         self.hotkey_listener.start()
 
         # Save/load combos advertised in the CLI banner

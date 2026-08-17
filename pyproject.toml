@@ -62,6 +62,10 @@ warn_return_any = true
 warn_unused_configs = true
 files = ["src/macro_py", "tests"]
 
+[[tool.mypy.overrides]]
+module = ["Quartz"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
