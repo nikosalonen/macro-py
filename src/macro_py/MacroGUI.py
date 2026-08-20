@@ -72,6 +72,7 @@ from PyQt6.QtGui import (
     QIntValidator,
 )
 from PyQt6.QtWidgets import QStyledItemDelegate, QStyleOptionViewItem
+from .MacHotkeys import GlobalHotkeys
 from .MacroApp import MacroApp
 from .MacroRecorder import secure_input_state
 from pynput import keyboard
@@ -637,6 +638,12 @@ class MacroGUI(QMainWindow):
         self._restore_on_top_after_record = False
         self._restore_on_top_after_play = False
         self._play_hotkey_listener: keyboard.Listener | None = None
+        # Registered macOS hotkeys. These keep arriving while Secure Input is
+        # held, which is exactly when the pynput tap below goes silent.
+        self._hotkeys = GlobalHotkeys()
+        # The GUI reports Secure Input in its own log, accurately for
+        # registered hotkeys, so silence the CLI-oriented stdout warning.
+        self.app.report_secure_input = False
         self.prev_front_app_name: str | None = None
 
         # Subprocess components for F5 hotkey on macOS
@@ -1281,9 +1288,9 @@ class MacroGUI(QMainWindow):
     def _warn_if_keys_are_blocked(self) -> None:
         """Say so when macOS Secure Input will swallow every keystroke.
 
-        Without this the recording silently captures mouse events only, and
-        F2 never reaches the recorder, so stopping from the background looks
-        broken rather than blocked.
+        Without this the recording silently captures mouse events only. F2
+        itself survives, since it is registered rather than tapped, so the
+        warning distinguishes the two rather than calling everything broken.
         """
         state = secure_input_state()
         if state is None:
@@ -1306,16 +1313,25 @@ class MacroGUI(QMainWindow):
                 "error",
             )
             blame = who
-        self._log_append(
-            "Mouse events still record. Keystrokes and the F2 stop hotkey do "
-            "not, so stop with F2 only while this window has focus, or use the "
-            "Stop Rec button.",
-            "error",
-        )
+        if self._hotkeys.is_registered("f2"):
+            self._log_append(
+                "Mouse events still record, and F2 still stops the recording: "
+                "it is a registered hotkey, which Secure Input does not block. "
+                "Only the keystrokes themselves are lost.",
+                "error",
+            )
+        else:
+            self._log_append(
+                "Mouse events still record. Keystrokes and the F2 stop hotkey "
+                "do not, so stop with F2 only while this window has focus, or "
+                "use the Stop Rec button.",
+                "error",
+            )
         self.status_bar.showMessage(f"Recording - keys blocked by {blame}")
 
     def stop_recording_gui(self) -> None:
         """Stop recording and restore window/topmost state if needed."""
+        self._stop_recording_hotkeys()
         # Cancel a pending recording countdown
         if self._countdown_active and not self.app.recorder.recording:
             self._cancel_countdown()
@@ -1743,14 +1759,44 @@ class MacroGUI(QMainWindow):
                 logging.exception("F5 consumer thread: Unexpected error")
                 break
 
+    def _start_recording_hotkeys(self) -> None:
+        """Register F2 natively so it stops a recording from the background.
+
+        The recorder's own listener maps F2 to a stop request too, but it
+        reads from an event tap, and a tap receives nothing while Secure
+        Input is held - the one situation where being unable to stop hurts
+        most. A registered hotkey is dispatched by the window server, so it
+        still arrives, and it is consumed rather than observed, so the app
+        being recorded never sees the keystroke either.
+        """
+        if not self._hotkeys.register(
+            "f2", lambda: QTimer.singleShot(0, self.stop_recording_gui)
+        ):
+            logging.debug("Native F2 hotkey unavailable; relying on the listener")
+
+    def _stop_recording_hotkeys(self) -> None:
+        """Hand F2 back to the rest of the system."""
+        self._hotkeys.unregister("f2")
+
     def _start_playback_hotkeys(self) -> None:
         """Start a global listener that maps F5 to stop playback."""
         # Check if already running
-        if self._play_hotkey_listener is not None or self._f5_subprocess is not None:
+        if (
+            self._play_hotkey_listener is not None
+            or self._f5_subprocess is not None
+            or self._hotkeys.is_registered("f5")
+        ):
             return
 
         # macOS: use subprocess to avoid CGEventTap conflict with PyQt6
         if sys.platform == "darwin":
+            # A registered hotkey needs no subprocess at all and survives
+            # Secure Input; the tap-based subprocess is only the fallback.
+            if self._hotkeys.register(
+                "f5", lambda: QTimer.singleShot(0, self.stop_playback_gui)
+            ):
+                logging.debug("Registered native F5 playback hotkey")
+                return
             try:
                 mp_ctx = mp.get_context("spawn")
                 self._f5_signal_queue = mp_ctx.Queue(maxsize=10)
@@ -1877,6 +1923,8 @@ class MacroGUI(QMainWindow):
 
     def _stop_playback_hotkeys(self) -> None:
         """Stop and clear the global F5 playback stop listener if present."""
+        self._hotkeys.unregister("f5")
+
         # macOS subprocess
         if self._f5_subprocess is not None:
             try:
@@ -1940,6 +1988,7 @@ class MacroGUI(QMainWindow):
         """Start recording after PyQt6 event loop is fully initialized"""
         try:
             self.app.start_recording()
+            self._start_recording_hotkeys()
 
             # Recording started successfully
             self._update_window_title("Recording")
@@ -2033,6 +2082,7 @@ class MacroGUI(QMainWindow):
 
         # Clean up F5 hotkey resources
         self._stop_playback_hotkeys()
+        self._hotkeys.unregister_all()
 
         # Stop timers
         if self.log_timer.isActive():

@@ -63,7 +63,22 @@ The codebase is organized into separate, focused modules under `src/macro_py/`:
    - Manages application state and threading for playback
    - Provides save/load functionality
 
-4. **MacroGUI** (`MacroGUI.py`) - PyQt6 graphical interface
+4. **GlobalHotkeys** (`MacHotkeys.py`) - native macOS global hotkeys
+   - Wraps Carbon's `RegisterEventHotKey` through `ctypes` (PyObjC does not expose it)
+   - **Why it exists**: a CGEventTap receives no key presses at all while macOS
+     Secure Input is held, so the tap-based F2/F5 hotkeys stopped working
+     whenever any app took that lock. Registered hotkeys are dispatched by the
+     window server to the registering process instead of being observed from
+     the event stream, and keep firing with Secure Input on - measured on a
+     locked session where a tap saw 0 key events and this saw every press.
+   - Registered keys are **consumed**, so the recorded app never sees them
+     either; this replaces the hand-rolled `darwin_intercept` suppression
+   - Bindings are deliberately short-lived (F2 only while recording, F5 only
+     while playing) because a registration takes the key from every other app
+   - Dispatch is keyed on `EventHotKeyID`; `_dispatch()` is split out so tests
+     can drive it without a running application event target
+
+5. **MacroGUI** (`MacroGUI.py`) - PyQt6 graphical interface
    - Primary GUI using PyQt6 with advanced logging and event display
    - Backgrounds its window during recording to avoid capturing UI interactions
    - Persists UI options (geometry, loops, speed, toggles) via QSettings
@@ -131,10 +146,19 @@ does not apply to the current recording/playback state; it runs from
   the offending app; the GUI warns in the log on recording start. The lock can
   also go **stale** - an app enables Secure Input then exits without releasing
   it, leaving the session stuck until the user logs out - which is why the
-  state carries a `stale` flag and the advice differs.
-- F2 is suppressed at the event-tap level while recording (`darwin_intercept`
-  in `_macro_listener_subprocess`), mirroring the F5 playback hotkey, so the
-  stop key does not also reach the app being recorded. Windows has no
+  state carries a `stale` flag and the advice differs. Since F2 is now a
+  registered hotkey it still stops the recording under Secure Input - only the
+  keystrokes themselves are lost - and `_warn_if_keys_are_blocked()` says which
+  of the two applies. Note the CLI is still tap-based and has no equivalent:
+  Carbon hotkeys need a Carbon/CF run loop, which its `while` sleep loop does
+  not provide.
+- **F2 and F5 are registered hotkeys on macOS** (`MacHotkeys.GlobalHotkeys`),
+  not tap observations, so they survive Secure Input and are swallowed before
+  the recorded app sees them. `_start_playback_hotkeys()` prefers the
+  registration and only falls back to `_f5_hotkey_subprocess` if it fails, so
+  that subprocess is normally dead code on macOS. The `darwin_intercept`
+  suppression in `_macro_listener_subprocess` likewise only matters on the
+  fallback path, since a registered F2 never reaches the tap. Windows has no
   equivalent: `suppress` there is all-or-nothing, so F2 still passes through.
 - Windows may require Administrator privileges for hooks
 - PyQt6 conflicts with CLI global shortcuts, so they're disabled when GUI is open

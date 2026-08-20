@@ -41,6 +41,11 @@ class MacroApp:
         self.max_idle_time: float | None = None
         self.playback_speed = 1.0  # Playback speed multiplier
         self.compress_moves = True  # Drop insignificant mouse moves after recording
+        # CLI hotkeys read from an event tap, so Secure Input really does break
+        # F2 here. The GUI registers F2 with the window server instead and
+        # reports the state itself, so it turns this off to avoid saying
+        # otherwise.
+        self.report_secure_input = True
 
     def setup_hotkeys(self) -> None:
         """Configure global hotkeys for CLI mode (not used by GUI)."""
@@ -118,7 +123,7 @@ class MacroApp:
         """Start recording if not already recording or playing."""
         if not self.recorder.recording and not self.player.playing:
             print("Recording started...")
-            state = secure_input_state()
+            state = secure_input_state() if self.report_secure_input else None
             if state is not None:
                 who = (
                     "an app that has since exited - log out and back in to " "clear it"
@@ -127,8 +132,9 @@ class MacroApp:
                 )
                 print(
                     f"  WARNING: macOS Secure Input is on ({who}). Key presses "
-                    "are being withheld, so keystrokes and the F2 stop hotkey "
-                    "will not be recorded."
+                    "are being withheld, so keystrokes will not be recorded, "
+                    "and F2 will only stop the recording while this terminal "
+                    "has focus."
                 )
             self.recorder.start_recording()
         else:

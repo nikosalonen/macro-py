@@ -223,3 +223,60 @@ def test_pid_is_alive_counts_a_foreign_process(
 
     monkeypatch.setattr(recorder_module.os, "kill", not_ours)
     assert _pid_is_alive(1) is True
+
+
+hotkeys_module = import_module("macro_py.MacHotkeys")
+
+
+class TestGlobalHotkeys:
+    """Carbon itself is not exercised here - registering a real hotkey needs a
+    running application event target. The dispatch table and the guard rails
+    around it are plain Python, and they are what the GUI depends on."""
+
+    def test_supported_is_macos_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(hotkeys_module.sys, "platform", "win32")
+        assert hotkeys_module.supported() is False
+        monkeypatch.setattr(hotkeys_module.sys, "platform", "darwin")
+        assert hotkeys_module.supported() is True
+
+    def test_function_row_keycodes(self) -> None:
+        # Physical key positions; F2 stops recording and F5 stops playback.
+        assert hotkeys_module.KEYCODES == {
+            "f1": 122,
+            "f2": 120,
+            "f3": 99,
+            "f4": 118,
+            "f5": 96,
+        }
+
+    def test_unavailable_off_macos(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(hotkeys_module.sys, "platform", "win32")
+        hk = hotkeys_module.GlobalHotkeys()
+        assert hk.available is False
+        # Callers fall back to a listener rather than seeing an exception.
+        assert hk.register("f2", lambda: None) is False
+
+    def test_register_rejects_an_unknown_key(self) -> None:
+        hk = hotkeys_module.GlobalHotkeys()
+        assert hk.register("f12", lambda: None) is False
+        assert hk.is_registered("f12") is False
+
+    def test_dispatch_runs_the_bound_callback(self) -> None:
+        hk = hotkeys_module.GlobalHotkeys()
+        calls: list[str] = []
+        hk._callbacks[7] = lambda: calls.append("stop")
+        hk._dispatch(7)
+        assert calls == ["stop"]
+
+    def test_dispatch_ignores_an_unbound_id(self) -> None:
+        # An unregistered key can still deliver one press already in flight.
+        hk = hotkeys_module.GlobalHotkeys()
+        hk._dispatch(1234)
+        hk._dispatch(None)
+
+    def test_unregister_is_a_noop_when_unbound(self) -> None:
+        hk = hotkeys_module.GlobalHotkeys()
+        hk.unregister("f2")
+        hk.unregister_all()
+        assert hk._refs == {}
+        assert hk._callbacks == {}
