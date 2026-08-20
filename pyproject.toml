@@ -63,7 +63,7 @@ warn_unused_configs = true
 files = ["src/macro_py", "tests"]
 
 [[tool.mypy.overrides]]
-module = ["Quartz"]
+module = ["Quartz", "objc", "Foundation"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

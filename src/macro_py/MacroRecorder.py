@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import time
 import json
+import os
+import re
+import subprocess
 import sys
 import logging
 import multiprocessing as mp
 import threading
 import queue
-from typing import TYPE_CHECKING, Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable, NamedTuple
 
 from pynput import mouse, keyboard
 
@@ -21,6 +24,12 @@ if TYPE_CHECKING:
     from multiprocessing.synchronize import Event as MpEvent
 
 Event = dict[str, Any]
+
+#: macOS virtual keycode for F2, the stop-recording hotkey
+F2_KEYCODE_MACOS = 120
+
+#: Session key naming the process that turned on Secure Input
+SECURE_INPUT_PID_RE = r'kCGSSessionSecureInputPID"\s*=\s*(\d+)'
 
 # Configure logging to help debug issues
 logging.basicConfig(level=logging.INFO)
@@ -137,6 +146,25 @@ def _macro_listener_subprocess(
             except Exception as e:
                 log.warning("[SUB] on_key_release error: %s", e)
 
+        def darwin_intercept(event_type: int, event: Any) -> Any:
+            """Swallow F2 so the stop hotkey never reaches the recorded app.
+
+            Without this the keystroke also lands in whatever app is focused
+            while recording. Returning None suppresses it system-wide; pynput
+            has already run on_key_press by the time this is called.
+            """
+            try:
+                import Quartz
+
+                keycode = Quartz.CGEventGetIntegerValueField(
+                    event, Quartz.kCGKeyboardEventKeycode
+                )
+                if keycode == F2_KEYCODE_MACOS:
+                    return None
+            except Exception as e:
+                log.warning("[SUB] darwin_intercept error: %s", e)
+            return event
+
         # Create listeners
         m_listener = mouse.Listener(
             on_move=on_move,
@@ -144,10 +172,12 @@ def _macro_listener_subprocess(
             on_scroll=on_scroll,
             suppress=False,
         )
+        # This subprocess only runs on macOS, so darwin_intercept always applies
         k_listener = keyboard.Listener(
             on_press=on_key_press,
             on_release=on_key_release,
             suppress=False,
+            darwin_intercept=darwin_intercept,
         )
 
         m_listener.start()
@@ -189,6 +219,96 @@ def _macro_listener_subprocess(
         except Exception:
             pass
         log.debug("[SUB] Listener subprocess exiting")
+
+
+class SecureInputState(NamedTuple):
+    """Why macOS is withholding key presses, and who asked for it."""
+
+    #: App name holding Secure Input, or None when it could not be resolved
+    holder: str | None
+    #: True when the process that enabled it has exited without releasing it,
+    #: which leaves the whole session stuck until the user logs out again
+    stale: bool
+
+
+def secure_input_state() -> SecureInputState | None:
+    """Report macOS Secure Input, or None when it is off.
+
+    While Secure Input is enabled - a focused password field, or an app such
+    as a browser or a terminal with secure keyboard entry - event taps stop
+    receiving key presses system-wide. Mouse events and modifier keys still
+    arrive, so recording looks like it is working while every keystroke and
+    the F2 stop hotkey are dropped without a word.
+    """
+    if sys.platform != "darwin":
+        return None
+    try:
+        import objc
+        from Foundation import NSBundle
+
+        carbon = NSBundle.bundleWithPath_("/System/Library/Frameworks/Carbon.framework")
+        namespace: dict[str, Any] = {}
+        objc.loadBundleFunctions(
+            carbon, namespace, [("IsSecureEventInputEnabled", b"B")]
+        )
+        is_enabled = namespace.get("IsSecureEventInputEnabled")
+        if is_enabled is None or not is_enabled():
+            return None
+    except Exception:
+        logging.debug("Could not query Secure Input state", exc_info=True)
+        return None
+
+    pid = _secure_input_pid()
+    if pid is None:
+        return SecureInputState(holder=None, stale=False)
+    return SecureInputState(holder=_process_name(pid), stale=not _pid_is_alive(pid))
+
+
+def _secure_input_pid() -> int | None:
+    """PID recorded as holding Secure Input, if the session names one."""
+    try:
+        console = subprocess.run(
+            ["ioreg", "-l", "-d", "1", "-k", "IOConsoleUsers"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        ).stdout
+        match = re.search(SECURE_INPUT_PID_RE, console)
+        if match is None or match.group(1) == "0":
+            return None
+        return int(match.group(1))
+    except Exception:
+        logging.debug("Could not read the Secure Input PID", exc_info=True)
+        return None
+
+
+def _pid_is_alive(pid: int) -> bool:
+    """Whether the process still exists."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # it exists, it is just owned by someone else
+    except Exception:
+        logging.debug("Could not probe pid %s", pid, exc_info=True)
+        return True
+    return True
+
+
+def _process_name(pid: int) -> str | None:
+    """Best-effort executable name for a pid."""
+    try:
+        command = subprocess.run(
+            ["ps", "-o", "comm=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        ).stdout.strip()
+        return os.path.basename(command) or None
+    except Exception:
+        logging.debug("Could not name pid %s", pid, exc_info=True)
+        return None
 
 
 def compress_mouse_moves(

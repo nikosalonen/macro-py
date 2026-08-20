@@ -12,7 +12,12 @@ from threading import Thread
 from typing import Any
 
 from pynput import keyboard
-from .MacroRecorder import MacroRecorder, compress_mouse_moves, trim_leading_idle
+from .MacroRecorder import (
+    MacroRecorder,
+    compress_mouse_moves,
+    secure_input_state,
+    trim_leading_idle,
+)
 from .MacroPlayer import MacroPlayer
 
 Event = dict[str, Any]
@@ -112,7 +117,19 @@ class MacroApp:
     def start_recording(self) -> None:
         """Start recording if not already recording or playing."""
         if not self.recorder.recording and not self.player.playing:
-            print("🔴 Recording started...")
+            print("Recording started...")
+            state = secure_input_state()
+            if state is not None:
+                who = (
+                    "an app that has since exited - log out and back in to " "clear it"
+                    if state.stale
+                    else f"held by {state.holder or 'another app'}"
+                )
+                print(
+                    f"  WARNING: macOS Secure Input is on ({who}). Key presses "
+                    "are being withheld, so keystrokes and the F2 stop hotkey "
+                    "will not be recorded."
+                )
             self.recorder.start_recording()
         else:
             logging.debug("Cannot start recording - already recording or playing")
@@ -120,7 +137,7 @@ class MacroApp:
     def stop_recording(self) -> None:
         """Stop recording and capture recorded events into macro_data."""
         if self.recorder.recording:
-            print("⏹️ Recording stopped")
+            print("Recording stopped")
             self.recorder.stop_recording()
             with self.recorder._events_lock:
                 events = list(self.recorder.events)
@@ -170,25 +187,25 @@ class MacroApp:
     def play_once(self) -> None:
         """Play current macro once."""
         if self.macro_data and not self.player.playing:
-            print("▶️ Playing macro once...")
+            print("Playing macro once...")
             self._play(1)
 
     def play_infinite(self) -> None:
         """Play current macro in an infinite loop (F5 to stop)."""
         if self.macro_data and not self.player.playing:
-            print("🔁 Playing macro infinitely (F5 to stop)...")
+            print("Playing macro infinitely (F5 to stop)...")
             self._play(-1)
 
     def play_x_times(self, times: int) -> None:
         """Play current macro a fixed number of times."""
         if self.macro_data and not self.player.playing:
-            print(f"🔄 Playing macro {times} times...")
+            print(f"Playing macro {times} times...")
             self._play(times)
 
     def stop_playback(self) -> None:
         """Stop playback if currently playing."""
         if self.player.playing:
-            print("⏹️ Playback stopped")
+            print("Playback stopped")
             self.player.stop_playback()
 
     def save_current_macro(self) -> None:
@@ -197,7 +214,7 @@ class MacroApp:
             filename = f"macro_{int(time.time())}.json"
             with open(filename, "w") as f:
                 json.dump(list(self.macro_data), f, indent=2)
-            print(f"💾 Saved to {filename}")
+            print(f"Saved to {filename}")
         else:
             print("No macro to save - record one first")
 
@@ -208,7 +225,7 @@ class MacroApp:
             self.recorder.load_macro(filename)
             with self.recorder._events_lock:
                 self.macro_data = list(self.recorder.events)
-            print(f"📂 Loaded {len(self.macro_data)} events")
+            print(f"Loaded {len(self.macro_data)} events")
         except Exception as e:
             print(f"Error loading file: {e}")
 
@@ -216,7 +233,7 @@ class MacroApp:
         """Run CLI loop with global hotkeys until exit."""
         self.setup_hotkeys()
         print("""
-        🎮 Macro Recorder Ready!
+        Macro Recorder Ready!
         ========================
         F1 - Start Recording
         F2 - Stop Recording

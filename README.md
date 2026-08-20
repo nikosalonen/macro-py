@@ -36,8 +36,51 @@ Hotkeys
 - `F3` play once
 - `F4` play forever
 - `F5` stop playback
+- `Ctrl/Cmd+O` / `Ctrl/Cmd+S` open / save macro (GUI)
+- `Ctrl/Cmd+L` show or hide the log (GUI)
 - `Ctrl+Shift+S` / `Ctrl+Shift+L` save / load macro (CLI only)
 - `Esc` exit CLI
+
+Every command also lives in the menu bar (File, Record, Playback, View, Help);
+the toolbar carries the transport controls and the log toggle. Commands that
+do not apply right now are greyed out, so Play stays disabled until a macro
+is loaded or recorded.
+
+File Handling
+-------------
+
+- Drop a `.json` macro onto the window to load it.
+- **File > Open Recent** keeps the last eight macros you opened or saved.
+- Closing the window with an unrecorded macro offers Save, Discard, or Cancel;
+  the same prompt appears before a new recording or another file replaces it.
+- The title bar shows the open file and marks it as edited until you save.
+
+If F2 Does Not Stop Recording
+-----------------------------
+
+On macOS, check whether an app is holding **Secure Input**. While it is on,
+macOS withholds key presses from every event tap: mouse actions still record,
+but keystrokes do not, and F2 never reaches the recorder - so stopping from the
+background looks broken. The log warns about this on recording start and names
+the app responsible. Password managers, browsers with a focused password field,
+and terminals with secure keyboard entry all trigger it. So do some background
+helpers that hold the lock permanently rather than around a text field -
+Logitech's `LogiPluginService` (part of Logi Options+) is one observed example,
+and quitting it is not enough because launchd restarts it and it takes the lock
+again; disable the feature in its own settings instead. To find the holder
+yourself:
+
+```bash
+ioreg -l -d 1 -k IOConsoleUsers | grep -o 'kCGSSessionSecureInputPID"=[0-9]*'
+```
+
+A non-zero PID is the app to close or defocus. If that PID no longer exists,
+the lock is **stale**: an app enabled Secure Input and exited without releasing
+it, and the session stays stuck until you log out and back in. The log says
+which of the two you are looking at.
+
+Meanwhile F2 still works while the Macro Recorder window has focus, as does
+the Stop Rec button.
 
 Recording Flow
 --------------
